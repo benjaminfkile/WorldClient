@@ -3,6 +3,7 @@ import { JSX, useEffect, useRef } from "react";
 import { WorldChunk } from "./types";
 
 const CHUNK_SIZE = 100;
+const LOAD_RADIUS = 10; // Load chunks within this radius (in chunks)
 
 export default function WorldScene(): JSX.Element {
     const mountRef = useRef<HTMLDivElement | null>(null);
@@ -30,7 +31,22 @@ export default function WorldScene(): JSX.Element {
         light.position.set(100, 200, 100);
         scene.add(light);
 
-        const loadedChunks = new Set<string>();
+        // Track loaded chunks: key = "chunkX,chunkZ", value = THREE.Mesh
+        const loadedChunks = new Map<string, THREE.Mesh>();
+        
+        // Track chunks currently being loaded to prevent duplicate requests
+        const loadingChunks = new Set<string>();
+
+        const getChunkKey = (chunkX: number, chunkZ: number): string => {
+            return `${chunkX},${chunkZ}`;
+        };
+
+        const getChunkCoords = (worldX: number, worldZ: number): [number, number] => {
+            return [
+                Math.floor(worldX / CHUNK_SIZE),
+                Math.floor(worldZ / CHUNK_SIZE)
+            ];
+        };
 
         const fetchChunk = async (
             chunkX: number,
@@ -88,14 +104,87 @@ export default function WorldScene(): JSX.Element {
         };
 
         const loadChunk = async (chunkX: number, chunkZ: number) => {
-            const key = `${chunkX},${chunkZ}`;
-            if (loadedChunks.has(key)) return;
+            const key = getChunkKey(chunkX, chunkZ);
+            
+            // Skip if already loaded or currently loading
+            if (loadedChunks.has(key) || loadingChunks.has(key)) return;
 
-            loadedChunks.add(key);
+            loadingChunks.add(key);
 
-            const data = await fetchChunk(chunkX, chunkZ);
-            const mesh = buildTerrainMesh(data);
-            scene.add(mesh);
+            try {
+                const data = await fetchChunk(chunkX, chunkZ);
+                const mesh = buildTerrainMesh(data);
+                
+                // Store the mesh in the map
+                loadedChunks.set(key, mesh);
+                scene.add(mesh);
+            } catch (error) {
+                console.error(`Failed to load chunk ${key}:`, error);
+            } finally {
+                loadingChunks.delete(key);
+            }
+        };
+
+        const unloadChunk = (chunkX: number, chunkZ: number) => {
+            const key = getChunkKey(chunkX, chunkZ);
+            const mesh = loadedChunks.get(key);
+            
+            if (!mesh) return;
+
+            // Remove from scene
+            scene.remove(mesh);
+
+            // Dispose geometry
+            if (mesh.geometry) {
+                mesh.geometry.dispose();
+            }
+
+            // Dispose material(s)
+            if (mesh.material) {
+                if (Array.isArray(mesh.material)) {
+                    mesh.material.forEach(mat => mat.dispose());
+                } else {
+                    mesh.material.dispose();
+                }
+            }
+
+            // Remove from map
+            loadedChunks.delete(key);
+        };
+
+        const updateChunks = () => {
+            const [cameraChunkX, cameraChunkZ] = getChunkCoords(
+                camera.position.x,
+                camera.position.z
+            );
+
+            // Determine which chunks should be loaded
+            const chunksToLoad: Array<[number, number]> = [];
+            for (let x = cameraChunkX - LOAD_RADIUS; x <= cameraChunkX + LOAD_RADIUS; x++) {
+                for (let z = cameraChunkZ - LOAD_RADIUS; z <= cameraChunkZ + LOAD_RADIUS; z++) {
+                    const key = getChunkKey(x, z);
+                    if (!loadedChunks.has(key) && !loadingChunks.has(key)) {
+                        chunksToLoad.push([x, z]);
+                    }
+                }
+            }
+
+            // Load missing chunks
+            chunksToLoad.forEach(([x, z]) => loadChunk(x, z));
+
+            // Unload chunks outside the radius
+            const chunksToUnload: Array<[number, number]> = [];
+            loadedChunks.forEach((mesh, key) => {
+                const [chunkX, chunkZ] = key.split(',').map(Number);
+                const dx = Math.abs(chunkX - cameraChunkX);
+                const dz = Math.abs(chunkZ - cameraChunkZ);
+                
+                if (dx > LOAD_RADIUS || dz > LOAD_RADIUS) {
+                    chunksToUnload.push([chunkX, chunkZ]);
+                }
+            });
+
+            chunksToUnload.forEach(([x, z]) => unloadChunk(x, z));
         };
 
         // Initial 3x3 grid
@@ -119,11 +208,22 @@ export default function WorldScene(): JSX.Element {
             if (keys["a"]) camera.position.x -= speed;
             if (keys["d"]) camera.position.x += speed;
 
+            // Update chunks based on camera position
+            updateChunks();
+
             renderer.render(scene, camera);
         };
 
         animate();
+        
         return () => {
+            // Cleanup: unload all chunks
+            const allChunks = Array.from(loadedChunks.keys());
+            allChunks.forEach(key => {
+                const [chunkX, chunkZ] = key.split(',').map(Number);
+                unloadChunk(chunkX, chunkZ);
+            });
+            
             renderer.dispose();
             mount.removeChild(renderer.domElement);
         };
