@@ -3,7 +3,7 @@ import { JSX, useEffect, useRef } from "react";
 import { WorldChunk } from "./types";
 
 const CHUNK_SIZE = 100;
-const LOAD_RADIUS = 10; // Load chunks within this radius (in chunks)
+const LOAD_RADIUS = 4; // Load chunks within this radius (in chunks)
 
 export default function WorldScene(): JSX.Element {
     const mountRef = useRef<HTMLDivElement | null>(null);
@@ -192,12 +192,6 @@ export default function WorldScene(): JSX.Element {
             chunksToUnload.forEach(([x, z]) => unloadChunk(x, z));
         };
 
-        // Initial 3x3 grid
-        for (let x = -1; x <= 1; x++) {
-            for (let z = -1; z <= 1; z++) {
-                loadChunk(x, z);
-            }
-        }
 
         const keys: Record<string, boolean> = {};
 
