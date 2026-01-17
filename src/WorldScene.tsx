@@ -27,6 +27,11 @@ export default function WorldScene(): JSX.Element {
         renderer.setSize(window.innerWidth, window.innerHeight);
         mount.appendChild(renderer.domElement);
 
+        // Camera rotation state
+        let yaw = 0; // Horizontal rotation
+        let pitch = 0; // Vertical rotation
+        const maxPitch = Math.PI / 2 - 0.1; // Prevent camera flip
+
         const light = new THREE.DirectionalLight(0xffffff, 1);
         light.position.set(100, 200, 100);
         scene.add(light);
@@ -196,17 +201,87 @@ export default function WorldScene(): JSX.Element {
 
         const keys: Record<string, boolean> = {};
 
-        window.addEventListener("keydown", e => (keys[e.key] = true));
-        window.addEventListener("keyup", e => (keys[e.key] = false));
+        const handleKeyDown = (e: KeyboardEvent) => {
+            keys[e.key.toLowerCase()] = true;
+        };
+
+        const handleKeyUp = (e: KeyboardEvent) => {
+            keys[e.key.toLowerCase()] = false;
+        };
+
+        window.addEventListener("keydown", handleKeyDown);
+        window.addEventListener("keyup", handleKeyUp);
+
+        // Pointer lock for mouse look
+        const handlePointerLockChange = () => {
+            // Optional: add UI feedback here
+        };
+
+        const handleMouseMove = (e: MouseEvent) => {
+            if (document.pointerLockElement === renderer.domElement) {
+                const sensitivity = 0.002;
+                
+                yaw -= e.movementX * sensitivity;
+                pitch -= e.movementY * sensitivity;
+                
+                // Clamp pitch to prevent camera flipping
+                pitch = Math.max(-maxPitch, Math.min(maxPitch, pitch));
+                
+                // Apply rotation to camera
+                camera.rotation.order = 'YXZ';
+                camera.rotation.y = yaw;
+                camera.rotation.x = pitch;
+            }
+        };
+
+        const handleClick = () => {
+            renderer.domElement.requestPointerLock();
+        };
+
+        renderer.domElement.addEventListener('click', handleClick);
+        document.addEventListener('pointerlockchange', handlePointerLockChange);
+        document.addEventListener('mousemove', handleMouseMove);
 
         const animate = () => {
             requestAnimationFrame(animate);
 
-            const speed = 1;
-            if (keys["w"]) camera.position.z -= speed;
-            if (keys["s"]) camera.position.z += speed;
-            if (keys["a"]) camera.position.x -= speed;
-            if (keys["d"]) camera.position.x += speed;
+            // Calculate movement vectors based on camera direction
+            const forward = new THREE.Vector3();
+            const right = new THREE.Vector3();
+            
+            // Get camera's forward direction (projected onto XZ plane for horizontal movement)
+            camera.getWorldDirection(forward);
+            forward.y = 0;
+            forward.normalize();
+            
+            // Get right direction (perpendicular to forward)
+            right.crossVectors(forward, camera.up).normalize();
+
+            const baseSpeed = 1;
+            const sprintMultiplier = keys['shift'] ? 2.5 : 1;
+            const speed = baseSpeed * sprintMultiplier;
+
+            // Movement relative to camera direction
+            if (keys['w']) {
+                camera.position.addScaledVector(forward, speed);
+            }
+            if (keys['s']) {
+                camera.position.addScaledVector(forward, -speed);
+            }
+            if (keys['a']) {
+                camera.position.addScaledVector(right, -speed);
+            }
+            if (keys['d']) {
+                camera.position.addScaledVector(right, speed);
+            }
+
+            // Vertical movement
+            if (keys[' ']) {
+                camera.position.y += speed;
+            }
+            if (keys['control']) {
+                camera.position.y -= speed;
+            }
 
             // Update chunks based on camera position
             updateChunks();
@@ -217,6 +292,18 @@ export default function WorldScene(): JSX.Element {
         animate();
         
         return () => {
+            // Cleanup event listeners
+            window.removeEventListener("keydown", handleKeyDown);
+            window.removeEventListener("keyup", handleKeyUp);
+            renderer.domElement.removeEventListener('click', handleClick);
+            document.removeEventListener('pointerlockchange', handlePointerLockChange);
+            document.removeEventListener('mousemove', handleMouseMove);
+            
+            // Exit pointer lock if active
+            if (document.pointerLockElement === renderer.domElement) {
+                document.exitPointerLock();
+            }
+            
             // Cleanup: unload all chunks
             const allChunks = Array.from(loadedChunks.keys());
             allChunks.forEach(key => {
