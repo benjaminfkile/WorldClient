@@ -4,7 +4,14 @@ import { WorldChunk } from "./types";
 
 const CHUNK_SIZE = 100;
 const LOAD_RADIUS = 10; // Load chunks within this radius (in chunks)
-const DEBUG_VISUALS = true; // Toggle temporary debug helpers/materials
+const DEBUG_VISUALS = false; // Toggle temporary debug helpers/materials
+
+// Geo-coordinate system for developer readout
+const ORIGIN_LATITUDE = 46.8721;
+const ORIGIN_LONGITUDE = -113.994;
+const METERS_PER_DEGREE_LATITUDE = 111320;
+// World X increases east (longitude), World Z increases north (latitude)
+// One world unit equals one meter
 
 export default function WorldScene(): JSX.Element {
     const mountRef = useRef<HTMLDivElement | null>(null);
@@ -29,6 +36,23 @@ export default function WorldScene(): JSX.Element {
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         mount.appendChild(renderer.domElement);
+
+        // Create developer HUD overlay (top-left corner)
+        const hudOverlay = document.createElement('div');
+        hudOverlay.style.position = 'fixed';
+        hudOverlay.style.top = '10px';
+        hudOverlay.style.left = '10px';
+        hudOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+        hudOverlay.style.color = '#00ff00';
+        hudOverlay.style.fontFamily = 'monospace';
+        hudOverlay.style.fontSize = '12px';
+        hudOverlay.style.padding = '8px';
+        hudOverlay.style.borderRadius = '4px';
+        hudOverlay.style.zIndex = '1000';
+        hudOverlay.style.pointerEvents = 'none';
+        hudOverlay.style.whiteSpace = 'pre-wrap';
+        hudOverlay.style.lineHeight = '1.4';
+        document.body.appendChild(hudOverlay);
 
         // Debug helpers to visualize world orientation and origin
         if (DEBUG_VISUALS) {
@@ -511,7 +535,27 @@ export default function WorldScene(): JSX.Element {
         const keys: Record<string, boolean> = {};
 
         const handleKeyDown = (e: KeyboardEvent) => {
-            keys[e.key.toLowerCase()] = true;
+            const key = e.key.toLowerCase();
+            keys[key] = true;
+            
+            // Copy coordinates to clipboard on 'C' key
+            if (key === 'c' && !document.pointerLockElement) {
+                const originLatRad = ORIGIN_LATITUDE * (Math.PI / 180);
+                const metersPerDegreeLon = METERS_PER_DEGREE_LATITUDE * Math.cos(originLatRad);
+                
+                const latitude = ORIGIN_LATITUDE + (camera.position.z / METERS_PER_DEGREE_LATITUDE);
+                const longitude = ORIGIN_LONGITUDE + (camera.position.x / metersPerDegreeLon);
+                
+                const coordText = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+                navigator.clipboard.writeText(coordText).then(() => {
+                    // Visual feedback: temporarily change HUD color
+                    const origColor = hudOverlay.style.color;
+                    hudOverlay.style.color = '#ffff00';
+                    setTimeout(() => {
+                        hudOverlay.style.color = origColor;
+                    }, 200);
+                }).catch(err => console.error('Failed to copy:', err));
+            }
         };
 
         const handleKeyUp = (e: KeyboardEvent) => {
@@ -553,6 +597,21 @@ export default function WorldScene(): JSX.Element {
 
         const animate = () => {
             requestAnimationFrame(animate);
+
+            // Update developer HUD overlay
+            const [camChunkX, camChunkZ] = getChunkCoords(camera.position.x, camera.position.z);
+            const originLatRad = ORIGIN_LATITUDE * (Math.PI / 180);
+            const metersPerDegreeLon = METERS_PER_DEGREE_LATITUDE * Math.cos(originLatRad);
+            
+            const latitude = ORIGIN_LATITUDE + (camera.position.z / METERS_PER_DEGREE_LATITUDE);
+            const longitude = ORIGIN_LONGITUDE + (camera.position.x / metersPerDegreeLon);
+            
+            hudOverlay.textContent = 
+                `LAT: ${latitude.toFixed(6)}\n` +
+                `LON: ${longitude.toFixed(6)}\n` +
+                `Chunk: [${camChunkX}, ${camChunkZ}]\n` +
+                `World: [${camera.position.x.toFixed(1)}, ${camera.position.z.toFixed(1)}]\n` +
+                `\n(Press C to copy coords)`;
 
             // Clamp camera height to be above terrain
             const [cameraChunkX, cameraChunkZ] = getChunkCoords(
@@ -630,6 +689,11 @@ export default function WorldScene(): JSX.Element {
             // Exit pointer lock if active
             if (document.pointerLockElement === renderer.domElement) {
                 document.exitPointerLock();
+            }
+            
+            // Cleanup HUD overlay
+            if (hudOverlay.parentNode) {
+                document.body.removeChild(hudOverlay);
             }
             
             // Cleanup: unload all chunks
