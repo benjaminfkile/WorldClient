@@ -4,7 +4,10 @@ import { WorldChunk } from "./types";
 
 const CHUNK_SIZE = 100;
 const LOAD_RADIUS = 10; // Load chunks within this radius (in chunks)
-const DEBUG_VISUALS = false; // Toggle temporary debug helpers/materials
+const UNLOAD_RADIUS = 12; // Unload chunks outside this radius (prevents oscillation)
+let DEBUG_VISUALS = false; // Toggle temporary debug helpers/materials (press 'D' to toggle)
+const UPDATE_CHUNKS_INTERVAL_MS = 250; // Update chunk visibility every ~250ms (4 times/sec)
+const MAX_CONCURRENT_LOADS = 20; // Never exceed this many simultaneous fetches
 
 // Geo-coordinate system for developer readout
 const ORIGIN_LATITUDE = 46.8721;
@@ -54,6 +57,9 @@ export default function WorldScene(): JSX.Element {
         hudOverlay.style.lineHeight = '1.4';
         document.body.appendChild(hudOverlay);
 
+        // Track debug meshes for toggling (declared early so it's available for debug helpers)
+        const debugMeshes: THREE.Object3D[] = [];
+
         // Debug helpers to visualize world orientation and origin
         if (DEBUG_VISUALS) {
             const gridSize = CHUNK_SIZE * LOAD_RADIUS * 3;
@@ -63,9 +69,11 @@ export default function WorldScene(): JSX.Element {
             gridHelper.position.y = -0.1;
             gridHelper.renderOrder = -1;
             scene.add(gridHelper);
+            debugMeshes.push(gridHelper);
 
             const axesHelper = new THREE.AxesHelper(100);
             scene.add(axesHelper);
+            debugMeshes.push(axesHelper);
 
             const testCube = new THREE.Mesh(
                 new THREE.BoxGeometry(10, 10, 10),
@@ -73,6 +81,7 @@ export default function WorldScene(): JSX.Element {
             );
             testCube.position.set(0, 5, 0);
             scene.add(testCube);
+            debugMeshes.push(testCube);
         }
 
         // Camera rotation state
@@ -86,9 +95,13 @@ export default function WorldScene(): JSX.Element {
 
         // Track loaded chunks: key = "chunkX,chunkZ", value = THREE.Mesh
         const loadedChunks = new Map<string, THREE.Mesh>();
-        
+
         // Track chunks currently being loaded to prevent duplicate requests
         const loadingChunks = new Set<string>();
+        
+        // Priority queue for pending chunk loads: { chunkX, chunkZ, distanceSquared }
+        // Sorted by distance (closest first)
+        const loadQueue: Array<{ chunkX: number; chunkZ: number; distanceSquared: number }> = [];
         
         // Track chunks pending retry (202 response): key = "chunkX,chunkZ", value = nextRetryTimeMs
         const pendingRetryChunks = new Map<string, number>();
@@ -104,14 +117,78 @@ export default function WorldScene(): JSX.Element {
         
         const RETRY_DELAY_MS = 750;
         const FAILED_CHUNK_COOLDOWN_MS = 5000;
-        const MAX_CONCURRENT_LOADS = 20;  // More parallel loads for larger radius
-        const UPDATE_CHUNKS_THROTTLE_MS = 250; // ~4 times per second
         
-        // Throttling state
-        let lastUpdateChunksTime = 0;
-        let lastCameraChunkX = 0;
-        let lastCameraChunkZ = 0;
-        let debugFocusedFirstChunk = false;
+        // Interval for processing chunk updates
+        let updateChunksIntervalId: NodeJS.Timeout | null = null;
+
+        // Update debug visuals (toggle meshes on/off and update materials)
+        const updateDebugVisuals = () => {
+            // Toggle initial debug meshes visibility
+            debugMeshes.forEach(mesh => {
+                mesh.visible = DEBUG_VISUALS;
+            });
+            
+            // Remove old box helpers
+            const oldHelpers = scene.children.filter(obj => obj instanceof THREE.Box3Helper);
+            oldHelpers.forEach(helper => scene.remove(helper));
+            
+            // Rebuild all loaded chunks with correct materials
+            const chunksToRebuild = Array.from(loadedChunks.entries());
+            
+            // Remove all chunks from scene and maps
+            chunksToRebuild.forEach(([key, mesh]) => {
+                scene.remove(mesh);
+                if (mesh.geometry) mesh.geometry.dispose();
+                if (mesh.material) {
+                    if (Array.isArray(mesh.material)) {
+                        mesh.material.forEach((mat: THREE.Material) => mat.dispose());
+                    } else {
+                        mesh.material.dispose();
+                    }
+                }
+            });
+            loadedChunks.clear();
+            
+            // Re-add chunks with correct debug materials
+            chunksToRebuild.forEach(([key, originalMesh]) => {
+                const chunkX = originalMesh.userData.chunkX;
+                const chunkZ = originalMesh.userData.chunkZ;
+                
+                // Get the original geometry
+                const geometry = originalMesh.geometry.clone() as THREE.PlaneGeometry;
+                
+                // Create new material based on current DEBUG_VISUALS setting
+                const color = (chunkX + chunkZ) % 2 === 0 ? 0x55aa55 : 0x448844;
+                const material = DEBUG_VISUALS
+                    ? new THREE.MeshBasicMaterial({
+                        color,
+                        wireframe: true,
+                        side: THREE.DoubleSide,
+                    })
+                    : new THREE.MeshStandardMaterial({
+                        color,
+                        flatShading: true,
+                        side: THREE.DoubleSide,
+                    });
+                
+                const newMesh = new THREE.Mesh(geometry, material);
+                newMesh.userData.chunkX = chunkX;
+                newMesh.userData.chunkZ = chunkZ;
+                newMesh.frustumCulled = DEBUG_VISUALS ? false : true;
+                newMesh.position.copy(originalMesh.position);
+                
+                loadedChunks.set(key, newMesh);
+                scene.add(newMesh);
+                
+                // Add box helper if in debug mode
+                if (DEBUG_VISUALS && geometry.boundingBox) {
+                    const worldBox = new THREE.Box3().setFromObject(newMesh);
+                    const boxHelper = new THREE.Box3Helper(worldBox, 0xffff00);
+                    boxHelper.frustumCulled = false;
+                    scene.add(boxHelper);
+                }
+            });
+        };
 
         // Log chunk state transitions (dev only)
         const logStateTransition = (key: string, oldState: string, newState: string) => {
@@ -131,25 +208,99 @@ export default function WorldScene(): JSX.Element {
             ];
         };
 
+        // Calculate squared distance from camera chunk to target chunk
+        const calculateChunkDistance = (
+            cameraChunkX: number,
+            cameraChunkZ: number,
+            targetChunkX: number,
+            targetChunkZ: number
+        ): number => {
+            const dx = targetChunkX - cameraChunkX;
+            const dz = targetChunkZ - cameraChunkZ;
+            return dx * dx + dz * dz;
+        };
+
+        // Enqueue a chunk for loading, maintaining distance-based priority
+        const enqueueChunkLoad = (
+            chunkX: number,
+            chunkZ: number,
+            cameraChunkX: number,
+            cameraChunkZ: number
+        ): void => {
+            // Skip if already in queue
+            if (loadQueue.some(item => item.chunkX === chunkX && item.chunkZ === chunkZ)) {
+                return;
+            }
+            
+            const distanceSquared = calculateChunkDistance(
+                cameraChunkX,
+                cameraChunkZ,
+                chunkX,
+                chunkZ
+            );
+            
+            // Insert in sorted order (closest first)
+            const insertIdx = loadQueue.findIndex(
+                item => distanceSquared < item.distanceSquared
+            );
+            
+            if (insertIdx === -1) {
+                loadQueue.push({ chunkX, chunkZ, distanceSquared });
+            } else {
+                loadQueue.splice(insertIdx, 0, { chunkX, chunkZ, distanceSquared });
+            }
+        };
+
+        // Process the load queue, respecting MAX_CONCURRENT_LOADS limit
+        const processLoadQueue = (): void => {
+            // Start new loads only if we're below the concurrent limit
+            while (loadingChunks.size < MAX_CONCURRENT_LOADS && loadQueue.length > 0) {
+                const item = loadQueue.shift();
+                if (!item) break;
+                
+                const key = getChunkKey(item.chunkX, item.chunkZ);
+                
+                // Skip if already loaded, blacklisted, or currently loading
+                if (
+                    loadedChunks.has(key) ||
+                    blacklistedChunks.has(key) ||
+                    loadingChunks.has(key)
+                ) {
+                    continue;
+                }
+                
+                // Skip if failed with active cooldown
+                const failTime = failedChunks.get(key);
+                if (failTime !== undefined && Date.now() < failTime) {
+                    // Re-enqueue to try again later
+                    loadQueue.push(item);
+                    continue;
+                }
+                
+                // Start the load
+                loadChunk(item.chunkX, item.chunkZ);
+            }
+        };
+
         // Decode binary terrain data (.NET format)
         const decodeBinaryTerrain = (buffer: ArrayBuffer, chunkX: number, chunkZ: number): WorldChunk => {
             const view = new DataView(buffer);
             let offset = 0;
 
-            // Read version (1 byte)
-            const version = view.getUint8(offset);
+            // Read version (1 byte) - kept for format validation
+            view.getUint8(offset);
             offset += 1;
 
             // Read resolution (2 bytes, ushort, little-endian)
             const resolution = view.getUint16(offset, true);
             offset += 2;
 
-            // Read minElevation (8 bytes, double, little-endian)
-            const minElevation = view.getFloat64(offset, true);
+            // Read minElevation (8 bytes, double, little-endian) - kept for validation
+            view.getFloat64(offset, true);
             offset += 8;
 
-            // Read maxElevation (8 bytes, double, little-endian)
-            const maxElevation = view.getFloat64(offset, true);
+            // Read maxElevation (8 bytes, double, little-endian) - kept for validation
+            view.getFloat64(offset, true);
             offset += 8;
 
             // Calculate expected height count: (resolution + 1) * (resolution + 1)
@@ -319,20 +470,6 @@ export default function WorldScene(): JSX.Element {
                 chunk.chunkZ * CHUNK_SIZE
             );
 
-            if (process.env.NODE_ENV === 'development') {
-                const bbox = geometry.boundingBox;
-                if (DEBUG_VISUALS) {
-                    const worldBox = new THREE.Box3().setFromObject(mesh);
-                    const boxHelper = new THREE.Box3Helper(worldBox, 0xffff00);
-                    boxHelper.frustumCulled = false;
-                    scene.add(boxHelper);
-                    console.log(`[Debug] Added Box3Helper at world box:`, {
-                        min: Array.from(worldBox.min),
-                        max: Array.from(worldBox.max),
-                    });
-                }
-            }
-
             return mesh;
         };
 
@@ -369,15 +506,28 @@ export default function WorldScene(): JSX.Element {
                 // If null, chunk returned 202 and is scheduled for retry
                 if (data === null) {
                     logStateTransition(key, 'fetching', 'pending-retry');
+                    loadingChunks.delete(key);
+                    abortControllers.delete(key);
+                    // Process queue after this load completes to start next one
+                    processLoadQueue();
                     return;
                 }
                 
                 // Double-check chunk wasn't unloaded while waiting
-                if (!loadingChunks.has(key)) return;
+                if (!loadingChunks.has(key)) {
+                    loadingChunks.delete(key);
+                    abortControllers.delete(key);
+                    processLoadQueue();
+                    return;
+                }
                 
                 try {
                     const mesh = buildTerrainMesh(data);
                     logStateTransition(key, 'fetching', 'mesh-built');
+                    
+                    // Store chunk coordinates in userData for debug material switching
+                    mesh.userData.chunkX = data.chunkX;
+                    mesh.userData.chunkZ = data.chunkZ;
                     
                     // Store the mesh in the map
                     loadedChunks.set(key, mesh);
@@ -388,17 +538,12 @@ export default function WorldScene(): JSX.Element {
                     console.error(`[Chunk] MESH BUILD FAILED for ${key}:`, meshError);
                     blacklistedChunks.add(key);
                     logStateTransition(key, 'fetching', 'blacklisted (mesh-build-error)');
-                    return;
                 }
             } catch (error) {
                 if (error instanceof Error && error.name === 'AbortError') {
                     // Silently ignore abort
                     logStateTransition(key, 'fetching', 'aborted');
-                    return;
-                }
-                
-                // Distinguish fetch errors from decode errors
-                if (error instanceof Error && error.message.includes('Buffer size mismatch')) {
+                } else if (error instanceof Error && error.message.includes('Buffer size mismatch')) {
                     // Decode/validation error - permanently blacklist
                     console.error(`[Chunk] DECODE FAILED for ${key}:`, error.message);
                     blacklistedChunks.add(key);
@@ -412,6 +557,8 @@ export default function WorldScene(): JSX.Element {
             } finally {
                 loadingChunks.delete(key);
                 abortControllers.delete(key);
+                // Process queue to start the next load
+                processLoadQueue();
             }
         };
 
@@ -446,7 +593,7 @@ export default function WorldScene(): JSX.Element {
             // Dispose material(s)
             if (mesh.material) {
                 if (Array.isArray(mesh.material)) {
-                    mesh.material.forEach(mat => mat.dispose());
+                    mesh.material.forEach((mat: THREE.Material) => mat.dispose());
                 } else {
                     mesh.material.dispose();
                 }
@@ -464,23 +611,9 @@ export default function WorldScene(): JSX.Element {
                 camera.position.z
             );
             
-            // Throttle updateChunks: only run if camera moved to different chunk or throttle time passed
-            const cameraChunkChanged = cameraChunkX !== lastCameraChunkX || cameraChunkZ !== lastCameraChunkZ;
-            const throttleExpired = now - lastUpdateChunksTime >= UPDATE_CHUNKS_THROTTLE_MS;
-            
-            if (!cameraChunkChanged && !throttleExpired) {
-                return; // Skip this frame
-            }
-            
-            lastUpdateChunksTime = now;
-            lastCameraChunkX = cameraChunkX;
-            lastCameraChunkZ = cameraChunkZ;
-            
-            // Track chunks enqueued this frame to prevent duplicate loads
-            const enqueuedThisFrame = new Set<string>();
+            // Determine which chunks should be loaded within LOAD_RADIUS
+            const enqueuedThisUpdate = new Set<string>();
 
-            // Determine which chunks should be loaded
-            const chunksToLoad: Array<[number, number]> = [];
             for (let x = cameraChunkX - LOAD_RADIUS; x <= cameraChunkX + LOAD_RADIUS; x++) {
                 for (let z = cameraChunkZ - LOAD_RADIUS; z <= cameraChunkZ + LOAD_RADIUS; z++) {
                     const key = getChunkKey(x, z);
@@ -488,11 +621,16 @@ export default function WorldScene(): JSX.Element {
                     // Skip if permanently blacklisted
                     if (blacklistedChunks.has(key)) continue;
                     
-                    // Skip if already processed this frame (per-frame deduplication)
-                    if (enqueuedThisFrame.has(key)) continue;
+                    // Skip if already processed this update
+                    if (enqueuedThisUpdate.has(key)) continue;
                     
                     // Skip if already loaded or currently loading
                     if (loadedChunks.has(key) || loadingChunks.has(key)) continue;
+                    
+                    // Skip if already in load queue
+                    if (loadQueue.some(item => item.chunkX === x && item.chunkZ === z)) {
+                        continue;
+                    }
                     
                     // Skip if failed (network) and cooldown not expired
                     const failTime = failedChunks.get(key);
@@ -502,33 +640,38 @@ export default function WorldScene(): JSX.Element {
                     const nextRetryTime = pendingRetryChunks.get(key);
                     if (nextRetryTime !== undefined && now < nextRetryTime) continue;
                     
-                    enqueuedThisFrame.add(key);
-                    chunksToLoad.push([x, z]);
+                    enqueuedThisUpdate.add(key);
+                    enqueueChunkLoad(x, z, cameraChunkX, cameraChunkZ);
                 }
             }
 
-            // Load missing chunks
-            chunksToLoad.forEach(([x, z]) => {
-                const key = getChunkKey(x, z);
-                if (process.env.NODE_ENV === 'development') {
-                    console.log(`[Chunk] Enqueuing load: ${key} (${loadingChunks.size}/${MAX_CONCURRENT_LOADS} concurrent)`);
+            // Process pending retries that are now ready
+            pendingRetryChunks.forEach((nextRetryTime, key) => {
+                if (now >= nextRetryTime && !enqueuedThisUpdate.has(key)) {
+                    const [chunkX, chunkZ] = key.split(',').map(Number);
+                    enqueuedThisUpdate.add(key);
+                    enqueueChunkLoad(chunkX, chunkZ, cameraChunkX, cameraChunkZ);
+                    // Remove from pendingRetryChunks so it goes through normal loading flow
+                    pendingRetryChunks.delete(key);
                 }
-                loadChunk(x, z);
             });
 
-            // Unload chunks outside the radius
+            // Unload chunks outside UNLOAD_RADIUS (hysteresis prevents oscillation)
             const chunksToUnload: Array<[number, number]> = [];
-            loadedChunks.forEach((mesh, key) => {
+            loadedChunks.forEach((mesh: THREE.Mesh, key: string) => {
                 const [chunkX, chunkZ] = key.split(',').map(Number);
                 const dx = Math.abs(chunkX - cameraChunkX);
                 const dz = Math.abs(chunkZ - cameraChunkZ);
                 
-                if (dx > LOAD_RADIUS || dz > LOAD_RADIUS) {
+                if (dx > UNLOAD_RADIUS || dz > UNLOAD_RADIUS) {
                     chunksToUnload.push([chunkX, chunkZ]);
                 }
             });
 
             chunksToUnload.forEach(([x, z]) => unloadChunk(x, z));
+
+            // Start processing the load queue
+            processLoadQueue();
         };
 
 
@@ -537,6 +680,15 @@ export default function WorldScene(): JSX.Element {
         const handleKeyDown = (e: KeyboardEvent) => {
             const key = e.key.toLowerCase();
             keys[key] = true;
+            
+            // Toggle debug visuals on 'G' key
+            if (key === 'g' && !document.pointerLockElement) {
+                DEBUG_VISUALS = !DEBUG_VISUALS;
+                updateDebugVisuals();
+                if (process.env.NODE_ENV === 'development') {
+                    console.log(`[Debug] DEBUG_VISUALS toggled: ${DEBUG_VISUALS}`);
+                }
+            }
             
             // Copy coordinates to clipboard on 'C' key
             if (key === 'c' && !document.pointerLockElement) {
@@ -606,12 +758,14 @@ export default function WorldScene(): JSX.Element {
             const latitude = ORIGIN_LATITUDE + (camera.position.z / METERS_PER_DEGREE_LATITUDE);
             const longitude = ORIGIN_LONGITUDE + (camera.position.x / metersPerDegreeLon);
             
+            const pointerLocked = document.pointerLockElement === renderer.domElement;
             hudOverlay.textContent = 
                 `LAT: ${latitude.toFixed(6)}\n` +
                 `LON: ${longitude.toFixed(6)}\n` +
                 `Chunk: [${camChunkX}, ${camChunkZ}]\n` +
                 `World: [${camera.position.x.toFixed(1)}, ${camera.position.z.toFixed(1)}]\n` +
-                `\n(Press C to copy coords)`;
+                `Queue: ${loadQueue.length} | Loading: ${loadingChunks.size}/${MAX_CONCURRENT_LOADS}\n` +
+                `\n${pointerLocked ? 'ESC: unlock | then C: copy coords | G: debug' : 'C: copy coords | G: debug [' + (DEBUG_VISUALS ? 'ON' : 'off') + '] | Click: lock'}`;
 
             // Clamp camera height to be above terrain
             const [cameraChunkX, cameraChunkZ] = getChunkCoords(
@@ -670,15 +824,23 @@ export default function WorldScene(): JSX.Element {
                 camera.position.y -= speed;
             }
 
-            // Update chunks based on camera position
-            updateChunks();
-
             renderer.render(scene, camera);
         };
+
+        // Start updateChunks on a fixed interval (decoupled from render loop)
+        updateChunksIntervalId = setInterval(() => {
+            updateChunks();
+        }, UPDATE_CHUNKS_INTERVAL_MS);
 
         animate();
         
         return () => {
+            // Clear the update interval
+            if (updateChunksIntervalId !== null) {
+                clearInterval(updateChunksIntervalId);
+                updateChunksIntervalId = null;
+            }
+            
             // Cleanup event listeners
             window.removeEventListener("keydown", handleKeyDown);
             window.removeEventListener("keyup", handleKeyUp);
@@ -696,9 +858,16 @@ export default function WorldScene(): JSX.Element {
                 document.body.removeChild(hudOverlay);
             }
             
+            // Cancel all in-flight requests
+            abortControllers.forEach(controller => controller.abort());
+            abortControllers.clear();
+            
+            // Clear load queue
+            loadQueue.length = 0;
+            
             // Cleanup: unload all chunks
             const allChunks = Array.from(loadedChunks.keys());
-            allChunks.forEach(key => {
+            allChunks.forEach((key: string) => {
                 const [chunkX, chunkZ] = key.split(',').map(Number);
                 unloadChunk(chunkX, chunkZ);
             });
