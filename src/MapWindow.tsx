@@ -120,7 +120,7 @@ export default function MapWindow({ latitude, longitude, onMapLoad }: MapWindowP
         return () => {
             // Don't remove the container on unmount - keep the map visible
         };
-    }, [onMapLoad]);
+    }, [onMapLoad, latitude, longitude]);
 
     // Update marker position when coordinates change
     useEffect(() => {

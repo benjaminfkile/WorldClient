@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { JSX, useEffect, useRef, useState, ReactNode } from "react";
+import { JSX, useEffect, useRef, useState } from "react";
 import { WorldChunk } from "./types";
 import MapWindow from "./MapWindow";
 
@@ -23,6 +23,7 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
     const [currentCoords, setCurrentCoords] = useState({ latitude: ORIGIN_LATITUDE, longitude: ORIGIN_LONGITUDE });
 
     // Control map container visibility
+    // Scene lifecycle (mount once)
     useEffect(() => {
         const container = document.getElementById('map-container-world-map');
         if (container) {
@@ -905,6 +906,7 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
             mount.removeChild(renderer.domElement);
         };
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     return (
