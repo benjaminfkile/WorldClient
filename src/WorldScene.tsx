@@ -1,11 +1,12 @@
 import * as THREE from "three";
-import { JSX, useEffect, useRef } from "react";
+import { JSX, useEffect, useRef, useState, ReactNode } from "react";
 import { WorldChunk } from "./types";
+import MapWindow from "./MapWindow";
 
 const CHUNK_SIZE = 100;
 const LOAD_RADIUS = 10; // Load chunks within this radius (in chunks)
 const UNLOAD_RADIUS = 12; // Unload chunks outside this radius (prevents oscillation)
-let DEBUG_VISUALS = false; // Toggle temporary debug helpers/materials (press 'D' to toggle)
+let DEBUG_VISUALS = false; // Toggle temporary debug helpers/materials (press 'G' to toggle)
 const UPDATE_CHUNKS_INTERVAL_MS = 250; // Update chunk visibility every ~250ms (4 times/sec)
 const MAX_CONCURRENT_LOADS = 20; // Never exceed this many simultaneous fetches
 
@@ -16,8 +17,18 @@ const METERS_PER_DEGREE_LATITUDE = 111320;
 // World X increases east (longitude), World Z increases north (latitude)
 // One world unit equals one meter
 
-export default function WorldScene(): JSX.Element {
+export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude: number; longitude: number }) => void }): JSX.Element {
     const mountRef = useRef<HTMLDivElement | null>(null);
+    const [mapVisible, setMapVisible] = useState(true);
+    const [currentCoords, setCurrentCoords] = useState({ latitude: ORIGIN_LATITUDE, longitude: ORIGIN_LONGITUDE });
+
+    // Control map container visibility
+    useEffect(() => {
+        const container = document.getElementById('map-container-world-map');
+        if (container) {
+            container.style.display = mapVisible ? 'block' : 'none';
+        }
+    }, [mapVisible]);
 
     useEffect(() => {
         const mount = mountRef.current;
@@ -38,6 +49,10 @@ export default function WorldScene(): JSX.Element {
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.domElement.style.position = 'fixed';
+        renderer.domElement.style.top = '0';
+        renderer.domElement.style.left = '0';
+        renderer.domElement.style.pointerEvents = 'auto';
         mount.appendChild(renderer.domElement);
 
         // Create developer HUD overlay (top-left corner)
@@ -689,6 +704,14 @@ export default function WorldScene(): JSX.Element {
                     console.log(`[Debug] DEBUG_VISUALS toggled: ${DEBUG_VISUALS}`);
                 }
             }
+
+            // Toggle map on 'M' key
+            if (key === 'm' && !document.pointerLockElement) {
+                setMapVisible(prev => !prev);
+                if (process.env.NODE_ENV === 'development') {
+                    console.log(`[Debug] Map toggled`);
+                }
+            }
             
             // Copy coordinates to clipboard on 'C' key
             if (key === 'c' && !document.pointerLockElement) {
@@ -758,6 +781,10 @@ export default function WorldScene(): JSX.Element {
             const latitude = ORIGIN_LATITUDE + (camera.position.z / METERS_PER_DEGREE_LATITUDE);
             const longitude = ORIGIN_LONGITUDE + (camera.position.x / metersPerDegreeLon);
             
+            // Update parent component with current coordinates
+            props.onCoordsUpdate?.({ latitude, longitude });
+            setCurrentCoords({ latitude, longitude });
+            
             const pointerLocked = document.pointerLockElement === renderer.domElement;
             hudOverlay.textContent = 
                 `LAT: ${latitude.toFixed(6)}\n` +
@@ -765,7 +792,9 @@ export default function WorldScene(): JSX.Element {
                 `Chunk: [${camChunkX}, ${camChunkZ}]\n` +
                 `World: [${camera.position.x.toFixed(1)}, ${camera.position.z.toFixed(1)}]\n` +
                 `Queue: ${loadQueue.length} | Loading: ${loadingChunks.size}/${MAX_CONCURRENT_LOADS}\n` +
-                `\n${pointerLocked ? 'ESC: unlock | then C: copy coords | G: debug' : 'C: copy coords | G: debug [' + (DEBUG_VISUALS ? 'ON' : 'off') + '] | Click: lock'}`;
+                `\n` +
+                `WASD/Arrow: move | Space: up | Ctrl: down\n` +
+                `${pointerLocked ? 'ESC: unlock | C: copy | G: debug | M: map' : 'C: copy | G: debug [' + (DEBUG_VISUALS ? 'ON' : 'off') + '] | M: map [' + (mapVisible ? 'ON' : 'off') + ']\nClick: lock pointer'}`;
 
             // Clamp camera height to be above terrain
             const [cameraChunkX, cameraChunkZ] = getChunkCoords(
@@ -878,5 +907,10 @@ export default function WorldScene(): JSX.Element {
 
     }, []);
 
-    return <div ref={mountRef} />;
+    return (
+        <>
+            <div ref={mountRef} style={{ width: '100%', height: '100%', position: 'fixed', top: 0, left: 0, zIndex: 0 }} />
+            <MapWindow latitude={currentCoords.latitude} longitude={currentCoords.longitude} />
+        </>
+    );
 }
