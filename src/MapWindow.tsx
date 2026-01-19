@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 
 interface MapWindowProps {
     latitude: number;
@@ -10,7 +10,6 @@ export default function MapWindow({ latitude, longitude, onMapLoad }: MapWindowP
     const mapContainerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<any>(null);
     const markerRef = useRef<any>(null);
-    const [mapLoaded, setMapLoaded] = useState(false);
     const scriptLoadedRef = useRef(false);
 
     useEffect(() => {
@@ -108,7 +107,6 @@ export default function MapWindow({ latitude, longitude, onMapLoad }: MapWindowP
                         title: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
                     });
 
-                    setMapLoaded(true);
                     onMapLoad?.();
                     console.log('[MapWindow] Map initialized successfully');
                 } catch (error) {
