@@ -71,15 +71,22 @@ export class TerrainChunkLoader {
     public static async fetchChunkOnce(
         chunkX: number,
         chunkZ: number,
+        resolution: number,
         abortSignal: AbortSignal
     ): Promise<WorldChunk | null> {
         const key = `${chunkX},${chunkZ}`;
         const worldVersion = 'world-v1'; // TODO: Make this configurable
-        const resolution = 64; // TODO: Make this configurable
-        const url = `${process.env.REACT_APP_API_URL}/world/${worldVersion}/terrain/${resolution}/${chunkX}/${chunkZ}`;
+
+        // Clamp to supported resolutions to keep URLs deterministic and cache-friendly
+        const allowedResolutions = [16, 32, 64, 128];
+        const clampedResolution = allowedResolutions.includes(resolution)
+            ? resolution
+            : Math.min(Math.max(resolution, 16), 64);
+
+        const url = `${process.env.REACT_APP_API_URL}/world/${worldVersion}/terrain/${clampedResolution}/${chunkX}/${chunkZ}`;
 
         if (process.env.NODE_ENV === 'development') {
-            console.log(`[Chunk] Fetching: ${key}`);
+            console.log(`[Chunk] Fetching: ${key} (res=${clampedResolution})`);
         }
 
         const res = await fetch(url, { signal: abortSignal });
@@ -88,13 +95,13 @@ export class TerrainChunkLoader {
             // Chunk ready - read binary data
             const buffer = await res.arrayBuffer();
             if (process.env.NODE_ENV === 'development') {
-                console.log(`[Chunk] Ready (200): ${key}`);
+                console.log(`[Chunk] Ready (200): ${key} (res=${clampedResolution})`);
             }
             return TerrainChunkLoader.decodeBinaryTerrain(buffer, chunkX, chunkZ);
         } else if (res.status === 202) {
             // Chunk still generating - schedule retry
             if (process.env.NODE_ENV === 'development') {
-                console.log(`[Chunk] Still generating (202): ${key}`);
+                console.log(`[Chunk] Still generating (202): ${key} (res=${clampedResolution})`);
             }
             return null;
         } else {
