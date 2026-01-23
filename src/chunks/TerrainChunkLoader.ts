@@ -72,10 +72,10 @@ export class TerrainChunkLoader {
         chunkX: number,
         chunkZ: number,
         resolution: number,
-        abortSignal: AbortSignal
+        abortSignal: AbortSignal,
+        worldVersion: string
     ): Promise<WorldChunk | null> {
         const key = `${chunkX},${chunkZ}`;
-        const worldVersion = 'world-v1'; // TODO: Make this configurable
 
         // Clamp to supported resolutions to keep URLs deterministic and cache-friendly
         const allowedResolutions = [16, 32, 64, 128];

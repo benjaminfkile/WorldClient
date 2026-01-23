@@ -46,9 +46,13 @@ export class ChunkManager {
     // Track the resolution currently being fetched per chunk key
     private loadingResolutions = new Map<string, number>();
 
-    constructor(scene: THREE.Scene, debugVisuals: boolean) {
+    // World version for API calls
+    private worldVersion: string;
+
+    constructor(scene: THREE.Scene, debugVisuals: boolean, worldVersion: string) {
         this.scene = scene;
         this.meshBuilder = new TerrainMeshBuilder(debugVisuals);
+        this.worldVersion = worldVersion;
     }
 
     public setDebugVisuals(enabled: boolean): void {
@@ -274,7 +278,8 @@ export class ChunkManager {
                 chunkX,
                 chunkZ,
                 resolution,
-                abortController.signal
+                abortController.signal,
+                this.worldVersion
             );
             
             // If null, chunk returned 202 and is scheduled for retry

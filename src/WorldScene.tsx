@@ -10,6 +10,7 @@ import { MouseLookController } from "./input/MouseLookController";
 import { ChunkManager } from "./chunks/ChunkManager";
 import { DebugHUD } from "./debug/DebugHUD";
 import { DebugVisuals } from "./debug/DebugVisuals";
+import { useWorldVersion } from "./WorldVersionContext";
 
 const CHUNK_SIZE = 100;
 let DEBUG_VISUALS = false; // Toggle temporary debug helpers/materials (press 'G' to toggle)
@@ -27,6 +28,7 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
     const mountRef = useRef<HTMLDivElement | null>(null);
     const [mapVisible, setMapVisible] = useState(true);
     const [currentCoords, setCurrentCoords] = useState({ latitude: ORIGIN_LATITUDE, longitude: ORIGIN_LONGITUDE });
+    const { activeWorldVersion, isLoading, error } = useWorldVersion();
 
     // Control map container visibility
     useEffect(() => {
@@ -41,6 +43,19 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
         const mount = mountRef.current;
         if (!mount) return;
         
+        // Wait for world version to be loaded
+        if (!activeWorldVersion) {
+            if (process.env.NODE_ENV === 'development') {
+                console.log('[WorldScene] Waiting for world version to load...');
+            }
+            return;
+        }
+
+        if (error) {
+            console.error('[WorldScene] Failed to load world version:', error);
+            return;
+        }
+        
         // Initialize core systems
         const scene = createScene();
         const camera = createCamera();
@@ -50,7 +65,7 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
         // Initialize controllers
         const keyboardController = new KeyboardController();
         const mouseLookController = new MouseLookController(renderer);
-        const chunkManager = new ChunkManager(scene, DEBUG_VISUALS);
+        const chunkManager = new ChunkManager(scene, DEBUG_VISUALS, activeWorldVersion);
         const debugHUD = new DebugHUD();
         const debugVisuals = new DebugVisuals(scene);
         
@@ -171,8 +186,7 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
             mount.removeChild(renderer.domElement);
         };
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [activeWorldVersion, error]);
 
     return (
         <>
