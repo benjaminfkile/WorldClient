@@ -233,7 +233,7 @@ export class ChunkManager {
     // Log chunk state transitions (dev only)
     private logStateTransition(key: string, oldState: string, newState: string): void {
         if (process.env.NODE_ENV === 'development') {
-            console.log(`[Chunk] State: ${key} ${oldState} -> ${newState}`);
+            //console.log(`[Chunk] State: ${key} ${oldState} -> ${newState}`);
         }
     }
 

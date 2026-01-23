@@ -42,7 +42,7 @@ export default function MapWindow({ latitude, longitude, onMapLoad }: MapWindowP
             container.style.padding = '0';
             
             document.body.appendChild(container);
-            console.log('[MapWindow] Container created at left:', leftPos, 'top: 10');
+            //console.log('[MapWindow] Container created at left:', leftPos, 'top: 10');
         }
 
         mapContainerRef.current = container;
@@ -108,7 +108,7 @@ export default function MapWindow({ latitude, longitude, onMapLoad }: MapWindowP
                     });
 
                     onMapLoad?.();
-                    console.log('[MapWindow] Map initialized successfully');
+                    //console.log('[MapWindow] Map initialized successfully');
                 } catch (error) {
                     console.error('[MapWindow] Error initializing map:', error);
                 }

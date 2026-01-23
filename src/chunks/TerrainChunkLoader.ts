@@ -84,7 +84,7 @@ export class TerrainChunkLoader {
         const url = `${process.env.REACT_APP_API_URL}/world/${worldVersion}/terrain/${clampedResolution}/${chunkX}/${chunkZ}`;
 
         if (process.env.NODE_ENV === 'development') {
-            console.log(`[Chunk] Fetching: ${key} (res=${clampedResolution})`);
+            //console.log(`[Chunk] Fetching: ${key} (res=${clampedResolution})`);
         }
 
         const res = await fetch(url, { signal: abortSignal });
@@ -93,13 +93,13 @@ export class TerrainChunkLoader {
             // Chunk ready - read binary data
             const buffer = await res.arrayBuffer();
             if (process.env.NODE_ENV === 'development') {
-                console.log(`[Chunk] Ready (200): ${key} (res=${clampedResolution})`);
+                //console.log(`[Chunk] Ready (200): ${key} (res=${clampedResolution})`);
             }
             return TerrainChunkLoader.decodeBinaryTerrain(buffer, chunkX, chunkZ);
         } else if (res.status === 202) {
             // Chunk still generating - schedule retry
             if (process.env.NODE_ENV === 'development') {
-                console.log(`[Chunk] Still generating (202): ${key} (res=${clampedResolution})`);
+                //console.log(`[Chunk] Still generating (202): ${key} (res=${clampedResolution})`);
             }
             return null;
         } else {

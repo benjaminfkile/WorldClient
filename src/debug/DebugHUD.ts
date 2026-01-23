@@ -1,8 +1,9 @@
 import { Vector3 } from "three";
 
 const CHUNK_SIZE = 100;
-const ORIGIN_LATITUDE = 46.8721;
-const ORIGIN_LONGITUDE = -113.994;
+const ORIGIN_LATITUDE = parseFloat(process.env.REACT_APP_ORIGIN_LAT || "37.7749");
+const ORIGIN_LONGITUDE = parseFloat(process.env.REACT_APP_ORIGIN_LNG || "-122.4194");
+console.log(`[DebugHUD] Origin Coordinates: LAT ${ORIGIN_LATITUDE}, LON ${ORIGIN_LONGITUDE}`);
 const METERS_PER_DEGREE_LATITUDE = 111320;
 
 export class DebugHUD {

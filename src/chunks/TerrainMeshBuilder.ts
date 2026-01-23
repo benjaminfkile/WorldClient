@@ -22,9 +22,9 @@ export class TerrainMeshBuilder {
         const maxHeight = Math.max(...heights);
         const heightRange = maxHeight - minHeight;
         if (process.env.NODE_ENV === 'development') {
-            console.log(
-                `[Chunk] Heights for ${chunk.chunkX},${chunk.chunkZ}: min=${minHeight}, max=${maxHeight}, range=${heightRange}`
-            );
+            //console.log(
+            //     `[Chunk] Heights for ${chunk.chunkX},${chunk.chunkZ}: min=${minHeight}, max=${maxHeight}, range=${heightRange}`
+            // );
         }
 
         // Resolution is segments per side; vertex grid is (resolution + 1) x (resolution + 1)

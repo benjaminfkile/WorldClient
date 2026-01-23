@@ -18,8 +18,9 @@ const UPDATE_CHUNKS_INTERVAL_MS = 250; // Update chunk visibility every ~250ms (
 const MAX_CONCURRENT_LOADS = 20; // Never exceed this many simultaneous fetches
 
 // Geo-coordinate system for developer readout
-const ORIGIN_LATITUDE = 46.8721;
-const ORIGIN_LONGITUDE = -113.994;
+const ORIGIN_LATITUDE = parseFloat(process.env.REACT_APP_ORIGIN_LAT || "37.7749");
+const ORIGIN_LONGITUDE = parseFloat(process.env.REACT_APP_ORIGIN_LNG || "-122.4194");
+console.log(`[WorldScene] Origin Coordinates: LAT ${ORIGIN_LATITUDE}, LON ${ORIGIN_LONGITUDE}`);
 const METERS_PER_DEGREE_LATITUDE = 111320;
 // World X increases east (longitude), World Z increases north (latitude)
 // One world unit equals one meter
@@ -47,7 +48,7 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
         // Wait for world version to be loaded
         if (!activeWorldVersion) {
             if (process.env.NODE_ENV === 'development') {
-                console.log('[WorldScene] Waiting for world version to load...');
+                //console.log('[WorldScene] Waiting for world version to load...');
             }
             return;
         }
@@ -87,7 +88,7 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
                 debugVisuals.setVisible(DEBUG_VISUALS);
                 chunkManager.setDebugVisuals(DEBUG_VISUALS);
                 if (process.env.NODE_ENV === 'development') {
-                    console.log(`[Debug] DEBUG_VISUALS toggled: ${DEBUG_VISUALS}`);
+                    //console.log(`[Debug] DEBUG_VISUALS toggled: ${DEBUG_VISUALS}`);
                 }
             }
 
@@ -95,7 +96,7 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
             if (key === 'm' && !document.pointerLockElement) {
                 setMapVisible(prev => !prev);
                 if (process.env.NODE_ENV === 'development') {
-                    console.log(`[Debug] Map toggled`);
+                    //console.log(`[Debug] Map toggled`);
                 }
             }
             
