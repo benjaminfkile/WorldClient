@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { TerrainChunkLoader } from "./TerrainChunkLoader";
 import { TerrainMeshBuilder } from "./TerrainMeshBuilder";
+import type { WorldContract } from "../WorldBootstrapContext";
 
-const CHUNK_SIZE = 100;
 const LOAD_RADIUS = 10; // Load chunks within this radius (in chunks)
 const UNLOAD_RADIUS = 12; // Unload chunks outside this radius (prevents oscillation)
 const MAX_CONCURRENT_LOADS = 20; // Never exceed this many simultaneous fetches
@@ -20,6 +20,7 @@ const LOD_LEVELS: Array<{ maxDistance: number; resolution: number }> = [
 export class ChunkManager {
     private scene: THREE.Scene;
     private meshBuilder: TerrainMeshBuilder;
+    private worldContract: WorldContract;
     
     // Track loaded chunks: key = "chunkX,chunkZ", value = THREE.Mesh
     private loadedChunks = new Map<string, THREE.Mesh>();
@@ -49,10 +50,11 @@ export class ChunkManager {
     // World version for API calls
     private worldVersion: string;
 
-    constructor(scene: THREE.Scene, debugVisuals: boolean, worldVersion: string) {
+    constructor(scene: THREE.Scene, debugVisuals: boolean, worldVersion: string, worldContract: WorldContract) {
         this.scene = scene;
-        this.meshBuilder = new TerrainMeshBuilder(debugVisuals);
+        this.meshBuilder = new TerrainMeshBuilder(debugVisuals, worldContract);
         this.worldVersion = worldVersion;
+        this.worldContract = worldContract;
     }
 
     public setDebugVisuals(enabled: boolean): void {
@@ -112,8 +114,8 @@ export class ChunkManager {
 
     private getChunkCoords(worldX: number, worldZ: number): [number, number] {
         return [
-            Math.floor(worldX / CHUNK_SIZE),
-            Math.floor(worldZ / CHUNK_SIZE)
+            Math.floor(worldX / this.worldContract.chunkSizeMeters),
+            Math.floor(worldZ / this.worldContract.chunkSizeMeters)
         ];
     }
 
@@ -135,8 +137,8 @@ export class ChunkManager {
         chunkX: number,
         chunkZ: number
     ): number {
-        const centerX = chunkX * CHUNK_SIZE + CHUNK_SIZE / 2;
-        const centerZ = chunkZ * CHUNK_SIZE + CHUNK_SIZE / 2;
+        const centerX = chunkX * this.worldContract.chunkSizeMeters + this.worldContract.chunkSizeMeters / 2;
+        const centerZ = chunkZ * this.worldContract.chunkSizeMeters + this.worldContract.chunkSizeMeters / 2;
         const dx = centerX - cameraPosition.x;
         const dz = centerZ - cameraPosition.z;
         return Math.sqrt(dx * dx + dz * dz);

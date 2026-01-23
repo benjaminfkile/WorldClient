@@ -1,13 +1,14 @@
 import * as THREE from "three";
 import { WorldChunk } from "../types";
-
-const CHUNK_SIZE = 100;
+import type { WorldContract } from "../WorldBootstrapContext";
 
 export class TerrainMeshBuilder {
     private debugVisuals: boolean;
+    private worldContract: WorldContract;
 
-    constructor(debugVisuals: boolean) {
+    constructor(debugVisuals: boolean, worldContract: WorldContract) {
         this.debugVisuals = debugVisuals;
+        this.worldContract = worldContract;
     }
 
     public setDebugVisuals(enabled: boolean): void {
@@ -16,6 +17,7 @@ export class TerrainMeshBuilder {
 
     public buildTerrainMesh(chunk: WorldChunk): THREE.Mesh {
         const { resolution, heights } = chunk.terrain;
+        const chunkSizeMeters = this.worldContract.chunkSizeMeters;
         
         // Log height statistics
         const minHeight = Math.min(...heights);
@@ -29,8 +31,8 @@ export class TerrainMeshBuilder {
 
         // Resolution is segments per side; vertex grid is (resolution + 1) x (resolution + 1)
         const geometry = new THREE.PlaneGeometry(
-            CHUNK_SIZE,
-            CHUNK_SIZE,
+            chunkSizeMeters,
+            chunkSizeMeters,
             resolution,  // widthSegments
             resolution   // heightSegments
         );
@@ -96,9 +98,9 @@ export class TerrainMeshBuilder {
         }
 
         mesh.position.set(
-            chunk.chunkX * CHUNK_SIZE,
+            chunk.chunkX * chunkSizeMeters,
             0,
-            chunk.chunkZ * CHUNK_SIZE
+            chunk.chunkZ * chunkSizeMeters
         );
 
         // Store chunk coordinates in userData for debug material switching

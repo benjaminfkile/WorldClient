@@ -1,15 +1,13 @@
 import { Vector3 } from "three";
-
-const CHUNK_SIZE = 100;
-const ORIGIN_LATITUDE = parseFloat(process.env.REACT_APP_ORIGIN_LAT || "37.7749");
-const ORIGIN_LONGITUDE = parseFloat(process.env.REACT_APP_ORIGIN_LNG || "-122.4194");
-console.log(`[DebugHUD] Origin Coordinates: LAT ${ORIGIN_LATITUDE}, LON ${ORIGIN_LONGITUDE}`);
-const METERS_PER_DEGREE_LATITUDE = 111320;
+import type { WorldContract } from "../WorldBootstrapContext";
+import { worldMetersToLatLon, worldMetersToChunkCoords } from "../world/worldMath";
 
 export class DebugHUD {
     private hudOverlay: HTMLDivElement;
+    private worldContract: WorldContract;
 
-    constructor() {
+    constructor(worldContract: WorldContract) {
+        this.worldContract = worldContract;
         this.hudOverlay = document.createElement('div');
         this.hudOverlay.style.position = 'fixed';
         this.hudOverlay.style.top = '10px';
@@ -36,26 +34,20 @@ export class DebugHUD {
         mapVisible: boolean,
         pointerLocked: boolean
     ): { latitude: number; longitude: number } {
-        const camChunkX = Math.floor(cameraPosition.x / CHUNK_SIZE);
-        const camChunkZ = Math.floor(cameraPosition.z / CHUNK_SIZE);
-        
-        const originLatRad = ORIGIN_LATITUDE * (Math.PI / 180);
-        const metersPerDegreeLon = METERS_PER_DEGREE_LATITUDE * Math.cos(originLatRad);
-        
-        const latitude = ORIGIN_LATITUDE + (cameraPosition.z / METERS_PER_DEGREE_LATITUDE);
-        const longitude = ORIGIN_LONGITUDE + (cameraPosition.x / metersPerDegreeLon);
+        const { chunkX, chunkZ } = worldMetersToChunkCoords(cameraPosition.x, cameraPosition.z, this.worldContract);
+        const coords = worldMetersToLatLon(cameraPosition.x, cameraPosition.z, this.worldContract);
         
         this.hudOverlay.textContent = 
-            `LAT: ${latitude.toFixed(6)}\n` +
-            `LON: ${longitude.toFixed(6)}\n` +
-            `Chunk: [${camChunkX}, ${camChunkZ}]\n` +
+            `LAT: ${coords.latitude.toFixed(6)}\n` +
+            `LON: ${coords.longitude.toFixed(6)}\n` +
+            `Chunk: [${chunkX}, ${chunkZ}]\n` +
             `World: [${cameraPosition.x.toFixed(1)}, ${cameraPosition.z.toFixed(1)}]\n` +
             `Queue: ${queueSize} | Loading: ${loadingCount}/${maxConcurrentLoads}\n` +
             `\n` +
             `WASD/Arrow: move | Space: up | Ctrl: down\n` +
             `${pointerLocked ? 'ESC: unlock | C: copy | G: debug | M: map' : 'C: copy | G: debug [' + (debugVisuals ? 'ON' : 'off') + '] | M: map [' + (mapVisible ? 'ON' : 'off') + ']\nClick: lock pointer'}`;
 
-        return { latitude, longitude };
+        return coords;
     }
 
     public flashCopyFeedback(): void {

@@ -10,26 +10,21 @@ import { MouseLookController } from "./input/MouseLookController";
 import { ChunkManager } from "./chunks/ChunkManager";
 import { DebugHUD } from "./debug/DebugHUD";
 import { DebugVisuals } from "./debug/DebugVisuals";
-import { useWorldVersion } from "./WorldVersionContext";
+import { useWorldBootstrap } from "./WorldBootstrapContext";
+import { worldMetersToLatLon } from "./world/worldMath";
 
-const CHUNK_SIZE = 100;
 let DEBUG_VISUALS = false; // Toggle temporary debug helpers/materials (press 'G' to toggle)
 const UPDATE_CHUNKS_INTERVAL_MS = 250; // Update chunk visibility every ~250ms (4 times/sec)
 const MAX_CONCURRENT_LOADS = 20; // Never exceed this many simultaneous fetches
 
-// Geo-coordinate system for developer readout
-const ORIGIN_LATITUDE = parseFloat(process.env.REACT_APP_ORIGIN_LAT || "37.7749");
-const ORIGIN_LONGITUDE = parseFloat(process.env.REACT_APP_ORIGIN_LNG || "-122.4194");
-console.log(`[WorldScene] Origin Coordinates: LAT ${ORIGIN_LATITUDE}, LON ${ORIGIN_LONGITUDE}`);
-const METERS_PER_DEGREE_LATITUDE = 111320;
 // World X increases east (longitude), World Z increases north (latitude)
 // One world unit equals one meter
 
 export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude: number; longitude: number }) => void }): JSX.Element {
     const mountRef = useRef<HTMLDivElement | null>(null);
     const [mapVisible, setMapVisible] = useState(true);
-    const [currentCoords, setCurrentCoords] = useState({ latitude: ORIGIN_LATITUDE, longitude: ORIGIN_LONGITUDE });
-    const { activeWorldVersion, error } = useWorldVersion();
+    const [currentCoords, setCurrentCoords] = useState({ latitude: 0, longitude: 0 });
+    const { activeWorldVersion, worldContract, isLoading, error } = useWorldBootstrap();
     const { onCoordsUpdate } = props;
 
     // Control map container visibility
@@ -45,18 +40,22 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
         const mount = mountRef.current;
         if (!mount) return;
         
-        // Wait for world version to be loaded
-        if (!activeWorldVersion) {
-            if (process.env.NODE_ENV === 'development') {
-                //console.log('[WorldScene] Waiting for world version to load...');
-            }
+        // Gate rendering: wait for bootstrap to complete
+        if (isLoading) {
             return;
         }
 
-        if (error) {
-            console.error('[WorldScene] Failed to load world version:', error);
+        // Fail hard if bootstrap errored
+        if (error || !activeWorldVersion || !worldContract) {
+            console.error('[WorldScene] Bootstrap failed - cannot proceed:', {
+                error,
+                hasVersion: !!activeWorldVersion,
+                hasContract: !!worldContract
+            });
             return;
         }
+        
+        const chunkSize = worldContract.chunkSizeMeters;
         
         // Initialize core systems
         const scene = createScene();
@@ -67,9 +66,9 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
         // Initialize controllers
         const keyboardController = new KeyboardController();
         const mouseLookController = new MouseLookController(renderer);
-        const chunkManager = new ChunkManager(scene, DEBUG_VISUALS, activeWorldVersion);
-        const debugHUD = new DebugHUD();
-        const debugVisuals = new DebugVisuals(scene);
+        const chunkManager = new ChunkManager(scene, DEBUG_VISUALS, activeWorldVersion, worldContract);
+        const debugHUD = new DebugHUD(worldContract);
+        const debugVisuals = new DebugVisuals(scene, worldContract);
         
         // Initialize debug visuals if enabled
         if (DEBUG_VISUALS) {
@@ -102,13 +101,8 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
             
             // Copy coordinates to clipboard on 'C' key
             if (key === 'c' && !document.pointerLockElement) {
-                const originLatRad = ORIGIN_LATITUDE * (Math.PI / 180);
-                const metersPerDegreeLon = METERS_PER_DEGREE_LATITUDE * Math.cos(originLatRad);
-                
-                const latitude = ORIGIN_LATITUDE + (camera.position.z / METERS_PER_DEGREE_LATITUDE);
-                const longitude = ORIGIN_LONGITUDE + (camera.position.x / metersPerDegreeLon);
-                
-                const coordText = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+                const coords = worldMetersToLatLon(camera.position.x, camera.position.z, worldContract);
+                const coordText = `${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}`;
                 navigator.clipboard.writeText(coordText).then(() => {
                     debugHUD.flashCopyFeedback();
                 }).catch(err => console.error('Failed to copy:', err));
@@ -141,8 +135,8 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
             
             // Clamp camera height to be above terrain
             const [cameraChunkX, cameraChunkZ] = [
-                Math.floor(camera.position.x / CHUNK_SIZE),
-                Math.floor(camera.position.z / CHUNK_SIZE)
+                Math.floor(camera.position.x / chunkSize),
+                Math.floor(camera.position.z / chunkSize)
             ];
             const terrainMesh = chunkManager.getLoadedChunk(cameraChunkX, cameraChunkZ);
             if (terrainMesh && terrainMesh.geometry) {
@@ -188,12 +182,62 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
             mount.removeChild(renderer.domElement);
         };
 
-    }, [activeWorldVersion, error, mapVisible, onCoordsUpdate]);
+    }, [activeWorldVersion, worldContract, isLoading, error, mapVisible, onCoordsUpdate]);
 
     return (
         <>
+            {isLoading && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    backgroundColor: '#0a0a0a',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 9999,
+                    color: '#888888',
+                    fontSize: '16px',
+                    fontFamily: 'monospace',
+                    animation: 'pulse 2s infinite'
+                }}>
+                    <style>{`
+                        @keyframes pulse {
+                            0%, 100% { opacity: 0.5; }
+                            50% { opacity: 1; }
+                        }
+                    `}</style>
+                    Initializing world...
+                </div>
+            )}
+            {error && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    backgroundColor: '#1a0a0a',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 9999,
+                    color: '#cc4444',
+                    fontSize: '16px',
+                    fontFamily: 'monospace',
+                    padding: '20px',
+                    textAlign: 'center'
+                }}>
+                    <div>
+                        <div style={{ marginBottom: '10px', fontWeight: 'bold', color: '#ff6666' }}>Bootstrap Error</div>
+                        <div>{error}</div>
+                    </div>
+                </div>
+            )}
             <div ref={mountRef} style={{ width: '100%', height: '100%', position: 'fixed', top: 0, left: 0, zIndex: 0 }} />
-            <MapWindow latitude={currentCoords.latitude} longitude={currentCoords.longitude} />
+            {!isLoading && !error && <MapWindow latitude={currentCoords.latitude} longitude={currentCoords.longitude} />}
         </>
     );
 }

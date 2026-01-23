@@ -1,14 +1,14 @@
 import { JSX } from "react";
 import WorldScene from "./WorldScene";
-import { WorldVersionProvider } from "./WorldVersionContext";
+import { WorldBootstrapProvider } from "./WorldBootstrapContext";
 import "./App.css";
 
 export default function App(): JSX.Element {
   return (
-    <WorldVersionProvider>
+    <WorldBootstrapProvider>
       <div className="App">
         <WorldScene />
       </div>
-    </WorldVersionProvider>
+    </WorldBootstrapProvider>
   );
 }

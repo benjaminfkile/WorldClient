@@ -1,14 +1,16 @@
 import * as THREE from "three";
+import type { WorldContract } from "../WorldBootstrapContext";
 
-const CHUNK_SIZE = 100;
 const LOAD_RADIUS = 10;
 
 export class DebugVisuals {
     private scene: THREE.Scene;
     private debugMeshes: THREE.Object3D[] = [];
+    private worldContract: WorldContract;
 
-    constructor(scene: THREE.Scene) {
+    constructor(scene: THREE.Scene, worldContract: WorldContract) {
         this.scene = scene;
+        this.worldContract = worldContract;
     }
 
     public setVisible(visible: boolean): void {
@@ -23,7 +25,7 @@ export class DebugVisuals {
         // Remove existing helpers first
         this.removeDebugHelpers();
 
-        const gridSize = CHUNK_SIZE * LOAD_RADIUS * 3;
+        const gridSize = this.worldContract.chunkSizeMeters * LOAD_RADIUS * 3;
         const gridDivisions = LOAD_RADIUS * 6;
         const gridHelper = new THREE.GridHelper(gridSize, gridDivisions, 0x444444, 0x888888);
         // Drop the grid slightly below y=0 to avoid z-fighting with terrain
