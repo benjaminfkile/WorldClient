@@ -28,7 +28,8 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
     const mountRef = useRef<HTMLDivElement | null>(null);
     const [mapVisible, setMapVisible] = useState(true);
     const [currentCoords, setCurrentCoords] = useState({ latitude: ORIGIN_LATITUDE, longitude: ORIGIN_LONGITUDE });
-    const { activeWorldVersion, isLoading, error } = useWorldVersion();
+    const { activeWorldVersion, error } = useWorldVersion();
+    const { onCoordsUpdate } = props;
 
     // Control map container visibility
     useEffect(() => {
@@ -134,7 +135,7 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
             );
             
             // Update parent component with current coordinates
-            props.onCoordsUpdate?.(coords);
+            onCoordsUpdate?.(coords);
             setCurrentCoords(coords);
             
             // Clamp camera height to be above terrain
@@ -186,7 +187,7 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
             mount.removeChild(renderer.domElement);
         };
 
-    }, [activeWorldVersion, error]);
+    }, [activeWorldVersion, error, mapVisible, onCoordsUpdate]);
 
     return (
         <>

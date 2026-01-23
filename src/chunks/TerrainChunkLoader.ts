@@ -1,7 +1,5 @@
 import { WorldChunk } from "../types";
 
-const CHUNK_SIZE = 100;
-
 export class TerrainChunkLoader {
     // Decode binary terrain data (.NET format)
     public static decodeBinaryTerrain(buffer: ArrayBuffer, chunkX: number, chunkZ: number): WorldChunk {

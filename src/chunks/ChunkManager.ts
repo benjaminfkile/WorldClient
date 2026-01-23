@@ -86,7 +86,6 @@ export class ChunkManager {
             // Recreate chunk data to rebuild mesh
             const resolution = geometry.parameters.widthSegments;
             const positions = geometry.attributes.position as THREE.BufferAttribute;
-            const gridSize = resolution + 1;
             const heights: number[] = [];
             
             for (let i = 0; i < positions.count; i++) {
