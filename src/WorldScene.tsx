@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { JSX, useEffect, useRef, useState } from "react";
 import MapWindow from "./MapWindow";
+import { CoordinateInput } from "./ui/CoordinateInput";
 import { createScene } from "./engine/createScene";
 import { createCamera } from "./engine/createCamera";
 import { createRenderer } from "./engine/createRenderer";
@@ -23,10 +24,23 @@ const MAX_CONCURRENT_LOADS = 20; // Never exceed this many simultaneous fetches
 
 export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude: number; longitude: number }) => void }): JSX.Element {
     const mountRef = useRef<HTMLDivElement | null>(null);
+    const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+    const chunkManagerRef = useRef<ChunkManager | null>(null);
     const [mapVisible, setMapVisible] = useState(true);
     const [currentCoords, setCurrentCoords] = useState({ latitude: 0, longitude: 0 });
     const { activeWorldVersion, worldContract, isLoading, error } = useWorldBootstrap();
     const { onCoordsUpdate } = props;
+
+    // Handle navigation to new coordinates
+    const handleNavigate = (worldX: number, worldZ: number) => {
+        if (cameraRef.current) {
+            cameraRef.current.position.x = worldX;
+            cameraRef.current.position.z = worldZ;
+        }
+        if (chunkManagerRef.current) {
+            chunkManagerRef.current.update({ x: worldX, y: 50, z: worldZ } as THREE.Vector3);
+        }
+    };
 
     // Control map container visibility
     useEffect(() => {
@@ -92,6 +106,7 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
         // Initialize core systems
         const scene = createScene();
         const camera = createCamera({ x: spawnWorldX, z: spawnWorldZ });
+        cameraRef.current = camera;
         const renderer = createRenderer(mount);
         createLighting(scene);
 
@@ -99,6 +114,7 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
         const keyboardController = new KeyboardController();
         const mouseLookController = new MouseLookController(renderer);
         const chunkManager = new ChunkManager(scene, DEBUG_VISUALS, activeWorldVersion, worldContract);
+        chunkManagerRef.current = chunkManager;
         const debugHUD = new DebugHUD(worldContract);
         const debugVisuals = new DebugVisuals(scene, worldContract);
         
@@ -218,6 +234,14 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
 
     return (
         <>
+            {!isLoading && !error && (
+                <CoordinateInput
+                  currentLat={currentCoords.latitude}
+                  currentLng={currentCoords.longitude}
+                  worldContract={worldContract}
+                  onNavigate={handleNavigate}
+                />
+            )}
             {isLoading && (
                 <div style={{
                     position: 'fixed',

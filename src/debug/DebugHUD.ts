@@ -18,7 +18,7 @@ export class DebugHUD {
         this.hudOverlay.style.fontSize = '12px';
         this.hudOverlay.style.padding = '8px';
         this.hudOverlay.style.borderRadius = '4px';
-        this.hudOverlay.style.zIndex = '1000';
+        this.hudOverlay.style.zIndex = '100';
         this.hudOverlay.style.pointerEvents = 'none';
         this.hudOverlay.style.whiteSpace = 'pre-wrap';
         this.hudOverlay.style.lineHeight = '1.4';
