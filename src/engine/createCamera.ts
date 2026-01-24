@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-export function createCamera(): THREE.PerspectiveCamera {
+export function createCamera(initialPosition?: { x: number; z: number }): THREE.PerspectiveCamera {
     const camera = new THREE.PerspectiveCamera(
         75,
         window.innerWidth / window.innerHeight,
@@ -8,9 +8,23 @@ export function createCamera(): THREE.PerspectiveCamera {
         100000  // Extended far plane for distant terrain
     );
 
-    camera.position.set(0, 50, 100);
-    // Ensure we're looking toward the origin initially so ground is in view
-    camera.lookAt(new THREE.Vector3(0, 0, 0));
+    const cameraHeight = 50;
+    const spawnX = initialPosition?.x ?? 0;
+    const spawnZ = initialPosition?.z ?? 100;
+
+    // Set up vector (which way is up)
+    camera.up.set(0, 1, 0);
+    
+    // Set position
+    camera.position.set(spawnX, cameraHeight, spawnZ);
+    
+    // Reset rotation to identity (looking forward along -Z axis)
+    camera.rotation.set(0, 0, 0);
+    camera.rotation.order = 'YXZ';
+    
+    // Rebuild camera matrix
+    camera.updateMatrix();
+    camera.updateMatrixWorld();
 
     return camera;
 }

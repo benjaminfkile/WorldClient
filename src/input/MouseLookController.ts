@@ -2,7 +2,7 @@ import {WebGLRenderer, Camera} from 'three';
 
 export class MouseLookController {
     private yaw = 0;
-    private pitch = 0;
+    private pitch = 0;  // 0 pitch = looking horizontally forward
     private maxPitch = Math.PI / 2 - 0.1;
     private renderer: WebGLRenderer;
 

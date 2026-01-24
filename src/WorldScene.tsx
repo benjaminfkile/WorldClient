@@ -11,7 +11,8 @@ import { ChunkManager } from "./chunks/ChunkManager";
 import { DebugHUD } from "./debug/DebugHUD";
 import { DebugVisuals } from "./debug/DebugVisuals";
 import { useWorldBootstrap } from "./WorldBootstrapContext";
-import { worldMetersToLatLon } from "./world/worldMath";
+import { worldMetersToLatLon, latLonToWorldMeters, worldMetersToChunkCoords } from "./world/worldMath";
+import { readSpawnCoordinates } from "./world/spawnCoordinates";
 
 let DEBUG_VISUALS = false; // Toggle temporary debug helpers/materials (press 'G' to toggle)
 const UPDATE_CHUNKS_INTERVAL_MS = 250; // Update chunk visibility every ~250ms (4 times/sec)
@@ -56,10 +57,41 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
         }
         
         const chunkSize = worldContract.chunkSizeMeters;
+
+        // Read and validate spawn coordinates
+        let spawnWorldX = 0;
+        let spawnWorldZ = 0;
+        let spawnChunkX = 0;
+        let spawnChunkZ = 0;
+        
+        try {
+            const spawnCoords = readSpawnCoordinates();
+            const worldMeters = latLonToWorldMeters(spawnCoords.latitude, spawnCoords.longitude, worldContract);
+            spawnWorldX = worldMeters.worldX;
+            spawnWorldZ = worldMeters.worldZ;
+            
+            const chunkCoords = worldMetersToChunkCoords(spawnWorldX, spawnWorldZ, worldContract);
+            spawnChunkX = chunkCoords.chunkX;
+            spawnChunkZ = chunkCoords.chunkZ;
+
+            console.log('[WorldScene] World spawn initialized');
+            console.log(`  Spawn lat/lon: (${spawnCoords.latitude.toFixed(4)}, ${spawnCoords.longitude.toFixed(4)})`);
+            console.log(`  World meters: (X=${spawnWorldX.toFixed(1)}, Z=${spawnWorldZ.toFixed(1)})`);
+            console.log(`  Chunk coords: (X=${spawnChunkX}, Z=${spawnChunkZ})`);
+            console.log(`  World origin: (${worldContract.origin.latitude.toFixed(4)}, ${worldContract.origin.longitude.toFixed(4)})`);
+        } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            console.error('[WorldScene] Failed to read spawn coordinates:', errorMsg);
+            console.log('[WorldScene] Spawning at world origin (0, 0)');
+            spawnWorldX = 0;
+            spawnWorldZ = 0;
+            spawnChunkX = 0;
+            spawnChunkZ = 0;
+        }
         
         // Initialize core systems
         const scene = createScene();
-        const camera = createCamera();
+        const camera = createCamera({ x: spawnWorldX, z: spawnWorldZ });
         const renderer = createRenderer(mount);
         createLighting(scene);
 
