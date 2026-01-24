@@ -26,6 +26,7 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
     const mountRef = useRef<HTMLDivElement | null>(null);
     const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
     const chunkManagerRef = useRef<ChunkManager | null>(null);
+    const relativeHeightRef = useRef<number>(2); // Remember camera height relative to terrain (default 2 units above)
     const [mapVisible, setMapVisible] = useState(true);
     const [currentCoords, setCurrentCoords] = useState({ latitude: 0, longitude: 0 });
     const { activeWorldVersion, worldContract, isLoading, error } = useWorldBootstrap();
@@ -33,13 +34,31 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
 
     // Handle navigation to new coordinates
     const handleNavigate = (worldX: number, worldZ: number) => {
-        if (cameraRef.current) {
-            cameraRef.current.position.x = worldX;
-            cameraRef.current.position.z = worldZ;
+        if (!cameraRef.current || !chunkManagerRef.current) return;
+        
+        // Calculate current terrain height to determine relative camera height
+        const chunkSize = worldContract?.chunkSizeMeters ?? 256;
+        const currentChunkX = Math.floor(cameraRef.current.position.x / chunkSize);
+        const currentChunkZ = Math.floor(cameraRef.current.position.z / chunkSize);
+        const currentTerrainMesh = chunkManagerRef.current.getLoadedChunk(currentChunkX, currentChunkZ);
+        
+        if (currentTerrainMesh && currentTerrainMesh.geometry) {
+            const geometry = currentTerrainMesh.geometry as THREE.PlaneGeometry;
+            if (geometry.boundingBox) {
+                const currentTerrainMaxY = currentTerrainMesh.position.y + geometry.boundingBox.max.y;
+                // Store the relative height (current camera height above terrain)
+                relativeHeightRef.current = Math.max(2, cameraRef.current.position.y - currentTerrainMaxY);
+            }
         }
-        if (chunkManagerRef.current) {
-            chunkManagerRef.current.update({ x: worldX, y: 50, z: worldZ } as THREE.Vector3);
-        }
+        
+        // Move camera to new coordinates
+        cameraRef.current.position.x = worldX;
+        cameraRef.current.position.z = worldZ;
+        
+        // Set camera to a safe height (will be clamped to terrain + relative height in animate loop)
+        cameraRef.current.position.y = 50;
+        
+        chunkManagerRef.current.update({ x: worldX, y: 50, z: worldZ } as THREE.Vector3);
     };
 
     // Control map container visibility
@@ -203,7 +222,7 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
             onCoordsUpdate?.(coords);
             setCurrentCoords(coords);
             
-            // Clamp camera height to be above terrain
+            // Clamp camera height to be above terrain with remembered relative height
             const [cameraChunkX, cameraChunkZ] = [
                 Math.floor(camera.position.x / chunkSize),
                 Math.floor(camera.position.z / chunkSize)
@@ -214,9 +233,10 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
                 if (geometry.boundingBox) {
                     // Get the terrain's Y range (already includes heightScale multiplier)
                     const terrainMaxY = terrainMesh.position.y + geometry.boundingBox.max.y;
-                    const cameraMinY = terrainMaxY + 2; // 2 units above terrain surface
-                    if (camera.position.y < cameraMinY) {
-                        camera.position.y = cameraMinY;
+                    const desiredCameraY = terrainMaxY + relativeHeightRef.current;
+                    // Only adjust if we're falling below the desired height
+                    if (camera.position.y < desiredCameraY) {
+                        camera.position.y = desiredCameraY;
                     }
                 }
             }
