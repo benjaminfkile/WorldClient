@@ -8,6 +8,7 @@ const UNLOAD_RADIUS = parseInt(process.env.REACT_APP_UNLOAD_RADIUS ?? "15") || 1
 const MAX_CONCURRENT_LOADS = 20; // Never exceed this many simultaneous fetches
 const RETRY_DELAY_MS = 750;
 const FAILED_CHUNK_COOLDOWN_MS = 5000;
+const MIN_LOADED_CHUNKS_FOR_READY = 9; // Minimum chunks needed to consider world ready
 
 // Distance bands mapped to desired resolutions; tweak values to tune LOD behavior.
 const LOD_LEVELS: Array<{ maxDistance: number; resolution: number }> = [
@@ -49,6 +50,9 @@ export class ChunkManager {
 
     // World version for API calls
     private worldVersion: string;
+
+    // Track if DEM is missing (204 received)
+    private demMissingObserved = false;
 
     constructor(scene: THREE.Scene, debugVisuals: boolean, worldVersion: string, worldContract: WorldContract) {
         this.scene = scene;
@@ -106,6 +110,10 @@ export class ChunkManager {
             this.loadedChunks.set(key, newMesh);
             this.scene.add(newMesh);
         });
+    }
+
+    private isDEMMissing(data: any): data is { dem_missing: true } {
+        return data && typeof data === 'object' && 'dem_missing' in data && data.dem_missing === true;
     }
 
     private getChunkKey(chunkX: number, chunkZ: number): string {
@@ -282,6 +290,17 @@ export class ChunkManager {
                 abortController.signal,
                 this.worldVersion
             );
+            
+            // If data has dem_missing flag, DEM is not available for this chunk
+            if (this.isDEMMissing(data)) {
+                this.demMissingObserved = true;
+                this.logStateTransition(key, 'fetching', 'dem-missing');
+                this.loadingChunks.delete(key);
+                this.abortControllers.delete(key);
+                // Process queue after this load completes to start next one
+                this.processLoadQueue();
+                return;
+            }
             
             // If null, chunk returned 202 and is scheduled for retry
             if (data === null) {
@@ -493,6 +512,40 @@ export class ChunkManager {
 
     public getLoadingCount(): number {
         return this.loadingChunks.size;
+    }
+
+    /**
+     * Returns the world readiness state.
+     * 
+     * - 'dem-missing': DEM is not available (HTTP 204 observed AND insufficient chunks loaded)
+     * - 'building': DEM available but insufficient chunks loaded or mostly pending (202s)
+     * - 'ready': DEM available and enough chunks loaded with low pending ratio
+     */
+    public getWorldReadiness(): 'dem-missing' | 'building' | 'ready' {
+        const loadedCount = this.loadedChunks.size;
+        const pendingRetryCount = this.pendingRetryChunks.size;
+        
+        // If we don't have enough chunks loaded yet, we're still building
+        if (loadedCount < MIN_LOADED_CHUNKS_FOR_READY) {
+            // If DEM was missing AND we still don't have enough chunks, stay in dem-missing
+            if (this.demMissingObserved) {
+                return 'dem-missing';
+            }
+            return 'building';
+        }
+
+        // If we have a high proportion of chunks pending retry (202s), still building
+        const totalChunksOfInterest = loadedCount + pendingRetryCount;
+        if (totalChunksOfInterest > 0) {
+            const pendingRatio = pendingRetryCount / totalChunksOfInterest;
+            if (pendingRatio > 0.5) {
+                // More than 50% of chunks are still being generated
+                return 'building';
+            }
+        }
+
+        // We're ready! (Have enough chunks, even if we saw 204s before)
+        return 'ready';
     }
 
     public destroy(): void {

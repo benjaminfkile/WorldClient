@@ -125,6 +125,13 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
 
         // Interval for processing chunk updates
         let updateChunksIntervalId: NodeJS.Timeout | null = null;
+        
+        // Track whether animate() is currently running
+        let isAnimating = false;
+        let animationFrameId: number | null = null;
+        
+        // Once world becomes ready, stay ready (hysteresis) to prevent rendering from stopping during navigation
+        let hasEverBeenReady = false;
 
         const handleKeyDown = (e: KeyboardEvent) => {
             const key = e.key.toLowerCase();
@@ -160,7 +167,22 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
         window.addEventListener("keydown", handleKeyDown);
 
         const animate = () => {
-            requestAnimationFrame(animate);
+            // Gate rendering only before first 'ready' state
+            // Once ready, use hysteresis to avoid stopping rendering during navigation
+            const readiness = chunkManager.getWorldReadiness();
+            
+            if (!hasEverBeenReady && readiness !== 'ready') {
+                // Still loading initial terrain - don't render yet
+                animationFrameId = requestAnimationFrame(animate);
+                return;
+            }
+            
+            // First time we reach ready - mark it
+            if (!hasEverBeenReady && readiness === 'ready') {
+                hasEverBeenReady = true;
+            }
+
+            animationFrameId = requestAnimationFrame(animate);
 
             // Update controllers
             keyboardController.updateCameraPosition(camera);
@@ -207,9 +229,16 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
             chunkManager.update(camera.position);
         }, UPDATE_CHUNKS_INTERVAL_MS);
 
+        isAnimating = true;
         animate();
         
         return () => {
+            // Stop animation loop
+            isAnimating = false;
+            if (animationFrameId !== null) {
+                cancelAnimationFrame(animationFrameId);
+            }
+
             // Clear the update interval
             if (updateChunksIntervalId !== null) {
                 clearInterval(updateChunksIntervalId);
@@ -291,6 +320,62 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
                         <div>{error}</div>
                     </div>
                 </div>
+            )}
+            {!isLoading && !error && chunkManagerRef.current && (
+                <>
+                    {chunkManagerRef.current.getWorldReadiness() === 'dem-missing' && (
+                        <div style={{
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: '100%',
+                            backgroundColor: '#0a0a0a',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            zIndex: 9998,
+                            color: '#888888',
+                            fontSize: '16px',
+                            fontFamily: 'monospace',
+                            animation: 'pulse 2s infinite'
+                        }}>
+                            <style>{`
+                                @keyframes pulse {
+                                    0%, 100% { opacity: 0.5; }
+                                    50% { opacity: 1; }
+                                }
+                            `}</style>
+                            Downloading terrain data…
+                        </div>
+                    )}
+                    {chunkManagerRef.current.getWorldReadiness() === 'building' && (
+                        <div style={{
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: '100%',
+                            backgroundColor: '#0a0a0a',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            zIndex: 9998,
+                            color: '#888888',
+                            fontSize: '16px',
+                            fontFamily: 'monospace',
+                            animation: 'pulse 2s infinite'
+                        }}>
+                            <style>{`
+                                @keyframes pulse {
+                                    0%, 100% { opacity: 0.5; }
+                                    50% { opacity: 1; }
+                                }
+                            `}</style>
+                            Building terrain…
+                        </div>
+                    )}
+                </>
             )}
             <div ref={mountRef} style={{ width: '100%', height: '100%', position: 'fixed', top: 0, left: 0, zIndex: 0 }} />
             {!isLoading && !error && <MapWindow latitude={currentCoords.latitude} longitude={currentCoords.longitude} />}

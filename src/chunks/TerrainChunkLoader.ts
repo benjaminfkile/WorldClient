@@ -66,13 +66,14 @@ export class TerrainChunkLoader {
     }
 
     // Fetch chunk (single attempt, no polling)
+    // Returns: WorldChunk on 200, null on 202 (retry later), { dem_missing: true } on 204 (DEM not available)
     public static async fetchChunkOnce(
         chunkX: number,
         chunkZ: number,
         resolution: number,
         abortSignal: AbortSignal,
         worldVersion: string
-    ): Promise<WorldChunk | null> {
+    ): Promise<WorldChunk | null | { dem_missing: true }> {
         // Clamp to supported resolutions to keep URLs deterministic and cache-friendly
         const allowedResolutions = [16, 32, 64, 128];
         const clampedResolution = allowedResolutions.includes(resolution)
@@ -100,6 +101,12 @@ export class TerrainChunkLoader {
                 //console.log(`[Chunk] Still generating (202): ${key} (res=${clampedResolution})`);
             }
             return null;
+        } else if (res.status === 204) {
+            // DEM is missing for this chunk - not an error, just unavailable
+            if (process.env.NODE_ENV === 'development') {
+                //console.log(`[Chunk] DEM missing (204): ${chunkX},${chunkZ}`);
+            }
+            return { dem_missing: true };
         } else {
             throw new Error(`Unexpected status: ${res.status}`);
         }
