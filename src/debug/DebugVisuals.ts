@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { WorldContract } from "../WorldBootstrapContext";
 
-const LOAD_RADIUS = 10;
+const LOAD_RADIUS = parseInt(process.env.REACT_APP_LOAD_RADIUS ?? "10") || 10;
 
 export class DebugVisuals {
     private scene: THREE.Scene;
