@@ -73,8 +73,6 @@ export class TerrainChunkLoader {
         abortSignal: AbortSignal,
         worldVersion: string
     ): Promise<WorldChunk | null> {
-        const key = `${chunkX},${chunkZ}`;
-
         // Clamp to supported resolutions to keep URLs deterministic and cache-friendly
         const allowedResolutions = [16, 32, 64, 128];
         const clampedResolution = allowedResolutions.includes(resolution)

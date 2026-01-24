@@ -19,16 +19,6 @@ export class TerrainMeshBuilder {
         const { resolution, heights } = chunk.terrain;
         const chunkSizeMeters = this.worldContract.chunkSizeMeters;
         
-        // Log height statistics
-        const minHeight = Math.min(...heights);
-        const maxHeight = Math.max(...heights);
-        const heightRange = maxHeight - minHeight;
-        if (process.env.NODE_ENV === 'development') {
-            //console.log(
-            //     `[Chunk] Heights for ${chunk.chunkX},${chunk.chunkZ}: min=${minHeight}, max=${maxHeight}, range=${heightRange}`
-            // );
-        }
-
         // Resolution is segments per side; vertex grid is (resolution + 1) x (resolution + 1)
         const geometry = new THREE.PlaneGeometry(
             chunkSizeMeters,

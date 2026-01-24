@@ -3,8 +3,8 @@ import { TerrainChunkLoader } from "./TerrainChunkLoader";
 import { TerrainMeshBuilder } from "./TerrainMeshBuilder";
 import type { WorldContract } from "../WorldBootstrapContext";
 
-const LOAD_RADIUS = 10; // Load chunks within this radius (in chunks)
-const UNLOAD_RADIUS = 12; // Unload chunks outside this radius (prevents oscillation)
+const LOAD_RADIUS = 2; // Load chunks within this radius (in chunks)
+const UNLOAD_RADIUS = 3; // Unload chunks outside this radius (prevents oscillation)
 const MAX_CONCURRENT_LOADS = 20; // Never exceed this many simultaneous fetches
 const RETRY_DELAY_MS = 750;
 const FAILED_CHUNK_COOLDOWN_MS = 5000;
