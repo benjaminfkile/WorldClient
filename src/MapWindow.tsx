@@ -1,4 +1,6 @@
 import { useEffect, useRef } from 'react';
+import * as maptilersdk from '@maptiler/sdk';
+import '@maptiler/sdk/dist/maptiler-sdk.css';
 
 interface MapWindowProps {
     latitude: number;
@@ -8,9 +10,8 @@ interface MapWindowProps {
 
 export default function MapWindow({ latitude, longitude, onMapLoad }: MapWindowProps): null {
     const mapContainerRef = useRef<HTMLDivElement | null>(null);
-    const mapRef = useRef<any>(null);
-    const markerRef = useRef<any>(null);
-    const scriptLoadedRef = useRef(false);
+    const mapRef = useRef<maptilersdk.Map | null>(null);
+    const markerRef = useRef<maptilersdk.Marker | null>(null);
 
     useEffect(() => {
         // Try to find existing map container first
@@ -48,72 +49,50 @@ export default function MapWindow({ latitude, longitude, onMapLoad }: MapWindowP
         mapContainerRef.current = container;
 
         const loadMap = () => {
-            if (scriptLoadedRef.current && !mapRef.current && mapContainerRef.current && !(window as any).google?.maps) {
-                console.warn('[MapWindow] Google Maps API not available');
+            const apiKey = process.env.REACT_APP_MAPTILER_API_KEY;
+            const mapId = process.env.REACT_APP_MAPTILER_MAP_ID;
+
+            if (!apiKey) {
+                console.error('[MapWindow] Missing REACT_APP_MAPTILER_API_KEY');
                 return;
             }
 
-            if (!scriptLoadedRef.current) {
-                const script = document.createElement('script');
-                const apiKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
-                
-                if (!apiKey) {
-                    console.error('[MapWindow] Google Maps API key not found in .env');
-                    return;
-                }
+            if (!mapId) {
+                console.error('[MapWindow] Missing REACT_APP_MAPTILER_MAP_ID');
+                return;
+            }
 
-                script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
-                script.async = true;
-                script.defer = true;
-                script.onload = () => {
-                    scriptLoadedRef.current = true;
-                    initMap();
-                };
-                script.onerror = () => {
-                    console.error('[MapWindow] Failed to load Google Maps script');
-                };
-                document.head.appendChild(script);
-            } else if (!mapRef.current) {
-                initMap();
+            if (mapRef.current || !mapContainerRef.current) {
+                return;
+            }
+
+            maptilersdk.config.apiKey = apiKey;
+
+            const styleUrl = `https://api.maptiler.com/maps/${mapId}/style.json`;
+
+            try {
+                mapRef.current = new maptilersdk.Map({
+                    container: mapContainerRef.current,
+                    style: styleUrl,
+                    center: [longitude, latitude],
+                    zoom: 16,
+                    attributionControl: false,
+                    hash: false,
+                    dragRotate: true,
+                    touchZoomRotate: true,
+                    scrollZoom: true,
+                    boxZoom: false,
+                    doubleClickZoom: true,
+                });
+
+                markerRef.current = new maptilersdk.Marker({ color: '#39ff14' })
+                    .setLngLat([longitude, latitude])
+                    .addTo(mapRef.current)
+                    .setPopup(undefined);
+            } catch (err) {
+                console.error('[MapWindow] Failed to initialize MapTiler map', err);
             }
         };
-
-        function initMap() {
-            if (!mapContainerRef.current) {
-                console.error('[MapWindow] Map container not found');
-                return;
-            }
-
-            if (!mapRef.current) {
-                try {
-                    const initialLocation = { lat: latitude, lng: longitude };
-
-                    // Create map
-                    mapRef.current = new (window as any).google.maps.Map(mapContainerRef.current, {
-                        zoom: 16,
-                        center: initialLocation,
-                        mapTypeId: (window as any).google.maps.MapTypeId.SATELLITE,
-                        disableDefaultUI: true,
-                        zoomControl: true,
-                        zoomControlOptions: {
-                            position: (window as any).google.maps.ControlPosition.BOTTOM_RIGHT,
-                        },
-                    });
-
-                    // Create marker
-                    markerRef.current = new (window as any).google.maps.Marker({
-                        position: initialLocation,
-                        map: mapRef.current,
-                        title: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
-                    });
-
-                    onMapLoad?.();
-                    //console.log('[MapWindow] Map initialized successfully');
-                } catch (error) {
-                    console.error('[MapWindow] Error initializing map:', error);
-                }
-            }
-        }
 
         loadMap();
 
@@ -125,10 +104,10 @@ export default function MapWindow({ latitude, longitude, onMapLoad }: MapWindowP
     // Update marker position when coordinates change
     useEffect(() => {
         if (markerRef.current && mapRef.current) {
-            const newLocation = { lat: latitude, lng: longitude };
-            markerRef.current.setPosition(newLocation);
-            markerRef.current.setTitle(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
-            mapRef.current.setCenter(newLocation);
+            const lngLat: [number, number] = [longitude, latitude];
+            markerRef.current.setLngLat(lngLat);
+            markerRef.current.getElement().setAttribute('title', `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
+            mapRef.current.setCenter(lngLat);
         }
     }, [latitude, longitude]);
 
