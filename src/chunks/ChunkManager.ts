@@ -70,14 +70,7 @@ export class ChunkManager {
         // Remove all chunks from scene and maps
         chunksToRebuild.forEach(([key, mesh]) => {
             this.scene.remove(mesh);
-            if (mesh.geometry) mesh.geometry.dispose();
-            if (mesh.material) {
-                if (Array.isArray(mesh.material)) {
-                    mesh.material.forEach((mat: THREE.Material) => mat.dispose());
-                } else {
-                    mesh.material.dispose();
-                }
-            }
+            this.disposeMesh(mesh);
         });
         this.loadedChunks.clear();
         
@@ -125,6 +118,33 @@ export class ChunkManager {
             Math.floor(worldX / this.worldContract.chunkSizeMeters),
             Math.floor(worldZ / this.worldContract.chunkSizeMeters)
         ];
+    }
+
+    private disposeMesh(mesh: THREE.Mesh): void {
+        const tileSubscriptions: Array<() => void> | undefined = (mesh.userData as any)?.tileSubscriptions;
+        if (tileSubscriptions) {
+            tileSubscriptions.forEach(fn => {
+                try {
+                    fn();
+                } catch (err) {
+                    if (process.env.NODE_ENV === 'development') {
+                        console.warn('[Chunk] Tile subscription cleanup failed', err);
+                    }
+                }
+            });
+        }
+
+        if (mesh.geometry) {
+            mesh.geometry.dispose();
+        }
+
+        if (mesh.material) {
+            if (Array.isArray(mesh.material)) {
+                mesh.material.forEach((mat: THREE.Material) => mat.dispose());
+            } else {
+                mesh.material.dispose();
+            }
+        }
     }
 
     // Calculate squared distance from camera chunk to target chunk
@@ -329,14 +349,7 @@ export class ChunkManager {
                 const oldMesh = this.loadedChunks.get(key);
                 if (oldMesh) {
                     this.scene.remove(oldMesh);
-                    if (oldMesh.geometry) oldMesh.geometry.dispose();
-                    if (oldMesh.material) {
-                        if (Array.isArray(oldMesh.material)) {
-                            oldMesh.material.forEach((mat: THREE.Material) => mat.dispose());
-                        } else {
-                            oldMesh.material.dispose();
-                        }
-                    }
+                    this.disposeMesh(oldMesh);
                 }
 
                 this.loadedChunks.set(key, mesh);
@@ -395,20 +408,7 @@ export class ChunkManager {
 
         // Remove from scene
         this.scene.remove(mesh);
-
-        // Dispose geometry
-        if (mesh.geometry) {
-            mesh.geometry.dispose();
-        }
-
-        // Dispose material(s)
-        if (mesh.material) {
-            if (Array.isArray(mesh.material)) {
-                mesh.material.forEach((mat: THREE.Material) => mat.dispose());
-            } else {
-                mesh.material.dispose();
-            }
-        }
+        this.disposeMesh(mesh);
 
         // Remove from map
         this.loadedChunks.delete(key);
