@@ -53,7 +53,6 @@ export default function MapWindow({ latitude, longitude, onMapLoad }: MapWindowP
             const mapId = process.env.REACT_APP_MAPTILER_MAP_ID;
             const apiUrl = process.env.REACT_APP_API_URL;
             const imageryZoom = parseInt(process.env.REACT_APP_IMAGERY_ZOOM ?? "11", 10);
-            const useTms = (process.env.REACT_APP_IMAGERY_TMS ?? "false").toLowerCase() === "true";
 
             if (!apiKey) {
                 console.error('[MapWindow] Missing REACT_APP_MAPTILER_API_KEY');
@@ -84,7 +83,6 @@ export default function MapWindow({ latitude, longitude, onMapLoad }: MapWindowP
                         type: 'raster',
                         tiles: [`${apiUrl}/world/imagery/maptiler/${mapId}/{z}/{x}/{y}`],
                         tileSize: 256,
-                        scheme: useTms ? 'tms' : 'xyz',
                         attribution: '© MapTiler',
                     },
                 },

@@ -23,29 +23,12 @@ export class ImageryTileCache {
     private placeholder: THREE.DataTexture;
     private baseUrl: string;
     private stylePath?: string;
-    private useTms: boolean;
 
     constructor(baseUrl: string, stylePath?: string) {
         this.baseUrl = baseUrl.replace(/\/$/, "");
         this.stylePath = stylePath?.replace(/^\/+|\/+$/g, "");
         this.loader = new THREE.TextureLoader();
         this.placeholder = this.createPlaceholderTexture();
-        this.useTms = (process.env.REACT_APP_IMAGERY_TMS ?? "false").toLowerCase() === "true";
-    }
-
-    public isTms(): boolean {
-        return this.useTms;
-    }
-
-    public mapToFetchCoord(coord: TileCoordinate): TileCoordinate {
-        if (!this.useTms) {
-            return coord;
-        }
-        return {
-            x: coord.x,
-            y: (1 << coord.z) - 1 - coord.y,
-            z: coord.z,
-        };
     }
 
     public getPlaceholder(): THREE.DataTexture {
@@ -117,13 +100,11 @@ export class ImageryTileCache {
 
     private buildTileUrl(coord: TileCoordinate): string {
         const mapId = this.stylePath || process.env.REACT_APP_MAPTILER_MAP_ID || "";
-        const fetchY = this.useTms ? ((1 << coord.z) - 1 - coord.y) : coord.y;
-        return `${this.baseUrl}/world/imagery/maptiler/${mapId}/${coord.z}/${coord.x}/${fetchY}`;
+        return `${this.baseUrl}/world/imagery/maptiler/${mapId}/${coord.z}/${coord.x}/${coord.y}`;
     }
 
     private getKey(coord: TileCoordinate): string {
-        const fetchY = this.useTms ? ((1 << coord.z) - 1 - coord.y) : coord.y;
-        return `${coord.z}/${coord.x}/${fetchY}`;
+        return `${coord.z}/${coord.x}/${coord.y}`;
     }
 
     private createPlaceholderTexture(): THREE.DataTexture {
