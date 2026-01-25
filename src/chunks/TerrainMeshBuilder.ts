@@ -1,14 +1,13 @@
 import * as THREE from "three";
 import { ImageryTileCache } from "../imagery/ImageryTileCache";
 import { getChunkTileCoverage, TileCoordinate } from "../imagery/tileMath";
-import { metersPerDegreeLongitudeAtLat } from "../world/worldMath";
 import { WorldChunk } from "../types";
 import type { WorldContract } from "../WorldBootstrapContext";
 
 const IMAGERY_MAX_TILES = 6;
 const DEFAULT_IMAGERY_ZOOM = parseInt(process.env.REACT_APP_IMAGERY_ZOOM ?? "11", 10);
-const IMAGERY_STYLE_PATH = process.env.REACT_APP_IMAGERY_STYLE;
-const sharedImageryCache = new ImageryTileCache(process.env.REACT_APP_API_URL ?? "", IMAGERY_STYLE_PATH);
+const MAPTILER_MAP_ID = process.env.REACT_APP_MAPTILER_MAP_ID;
+const sharedImageryCache = new ImageryTileCache(process.env.REACT_APP_API_URL ?? "", MAPTILER_MAP_ID);
 const TEXTURE_UNIFORM_NAMES = Array.from({ length: IMAGERY_MAX_TILES }, (_, i) => `uImageryTexture${i}`);
 
 export class TerrainMeshBuilder {
@@ -16,7 +15,6 @@ export class TerrainMeshBuilder {
     private worldContract: WorldContract;
     private imageryTileCache: ImageryTileCache;
     private imageryZoom: number;
-    private metersPerDegreeLonAtOrigin: number;
     private placeholderTexture: THREE.DataTexture;
     private fallbackColor: THREE.Color;
 
@@ -25,10 +23,6 @@ export class TerrainMeshBuilder {
         this.worldContract = worldContract;
         this.imageryTileCache = sharedImageryCache;
         this.imageryZoom = DEFAULT_IMAGERY_ZOOM;
-        this.metersPerDegreeLonAtOrigin = metersPerDegreeLongitudeAtLat(
-            worldContract.origin.latitude,
-            worldContract.metersPerDegreeLatitude
-        );
         this.placeholderTexture = this.imageryTileCache.getPlaceholder();
         this.fallbackColor = new THREE.Color(0x6b6b6b);
     }
@@ -142,7 +136,8 @@ export class TerrainMeshBuilder {
         const tileCount = Math.min(tiles.length, IMAGERY_MAX_TILES);
         for (let i = 0; i < tileCount; i++) {
             const tile = tiles[i];
-            tileCoords[i] = new THREE.Vector2(tile.x, tile.y);
+            const fetchCoord = this.imageryTileCache.mapToFetchCoord(tile);
+            tileCoords[i] = new THREE.Vector2(fetchCoord.x, fetchCoord.y);
             const handle = this.imageryTileCache.getTile(tile);
 
             if (handle.texture) {
@@ -177,9 +172,23 @@ export class TerrainMeshBuilder {
             uImageryFallback: { value: this.fallbackColor },
             uOriginLatLon: { value: new THREE.Vector2(this.worldContract.origin.latitude, this.worldContract.origin.longitude) },
             uMetersPerDegreeLat: { value: this.worldContract.metersPerDegreeLatitude },
-            uMetersPerDegreeLon: { value: this.metersPerDegreeLonAtOrigin },
+            uUseTms: { value: this.imageryTileCache.isTms() ? 1 : 0 },
             ...textureUniforms,
         };
+
+        if (process.env.NODE_ENV === 'development') {
+            const chunkWorldX = chunk.chunkX * this.worldContract.chunkSizeMeters;
+            const chunkWorldZ = chunk.chunkZ * this.worldContract.chunkSizeMeters;
+            const { latitude, longitude } = require('../world/worldMath').worldMetersToLatLon(
+                chunkWorldX,
+                chunkWorldZ,
+                this.worldContract
+            );
+            console.log(`[TerrainMesh] Chunk ${chunk.chunkX},${chunk.chunkZ} tiles:`, tiles.map(t => `${t.z}/${t.x}/${t.y}`));
+            console.log(`[TerrainMesh] Chunk SW corner: world(${chunkWorldX}, ${chunkWorldZ}) → lat/lon(${latitude.toFixed(6)}, ${longitude.toFixed(6)})`);
+            console.log(`[TerrainMesh] Origin: ${this.worldContract.origin.latitude}, ${this.worldContract.origin.longitude}`);
+            console.log(`[TerrainMesh] Zoom: ${this.imageryZoom}, MetersPerDegreeLat: ${this.worldContract.metersPerDegreeLatitude}`);
+        }
 
         material.defines = {
             ...(material.defines ?? {}),
@@ -219,6 +228,10 @@ export class TerrainMeshBuilder {
             const imageryChunk = `
             const float WEB_MERCATOR_MAX_LAT = 85.0511287798066;
 
+            vec3 toLinear(vec3 srgb) {
+                return pow(srgb, vec3(2.2));
+            }
+
             bool tileMatches(vec2 tileIndex, vec2 target) {
                 vec2 diff = abs(tileIndex - target);
                 return all(lessThan(diff, vec2(0.01)));
@@ -227,39 +240,54 @@ export class TerrainMeshBuilder {
             vec3 sampleImagery(vec2 tileIndex, vec2 tileUv) {
                 vec3 color = uImageryFallback;
 
-                if (uImageryTileCount > 0 && tileMatches(tileIndex, uImageryTileCoords[0])) {
-                    color = texture2D(uImageryTexture0, tileUv).rgb;
+                vec2 fetchTileIndex = tileIndex;
+                if (uUseTms == 1) {
+                    float maxIndex = exp2(float(uImageryZoomLevel)) - 1.0;
+                    fetchTileIndex.y = maxIndex - tileIndex.y;
                 }
-                if (uImageryTileCount > 1 && tileMatches(tileIndex, uImageryTileCoords[1])) {
-                    color = texture2D(uImageryTexture1, tileUv).rgb;
+
+                if (uImageryTileCount > 0 && tileMatches(fetchTileIndex, uImageryTileCoords[0])) {
+                    color = toLinear(texture2D(uImageryTexture0, tileUv).rgb);
                 }
-                if (uImageryTileCount > 2 && tileMatches(tileIndex, uImageryTileCoords[2])) {
-                    color = texture2D(uImageryTexture2, tileUv).rgb;
+                if (uImageryTileCount > 1 && tileMatches(fetchTileIndex, uImageryTileCoords[1])) {
+                    color = toLinear(texture2D(uImageryTexture1, tileUv).rgb);
                 }
-                if (uImageryTileCount > 3 && tileMatches(tileIndex, uImageryTileCoords[3])) {
-                    color = texture2D(uImageryTexture3, tileUv).rgb;
+                if (uImageryTileCount > 2 && tileMatches(fetchTileIndex, uImageryTileCoords[2])) {
+                    color = toLinear(texture2D(uImageryTexture2, tileUv).rgb);
                 }
-                if (uImageryTileCount > 4 && tileMatches(tileIndex, uImageryTileCoords[4])) {
-                    color = texture2D(uImageryTexture4, tileUv).rgb;
+                if (uImageryTileCount > 3 && tileMatches(fetchTileIndex, uImageryTileCoords[3])) {
+                    color = toLinear(texture2D(uImageryTexture3, tileUv).rgb);
                 }
-                if (uImageryTileCount > 5 && tileMatches(tileIndex, uImageryTileCoords[5])) {
-                    color = texture2D(uImageryTexture5, tileUv).rgb;
+                if (uImageryTileCount > 4 && tileMatches(fetchTileIndex, uImageryTileCoords[4])) {
+                    color = toLinear(texture2D(uImageryTexture4, tileUv).rgb);
+                }
+                if (uImageryTileCount > 5 && tileMatches(fetchTileIndex, uImageryTileCoords[5])) {
+                    color = toLinear(texture2D(uImageryTexture5, tileUv).rgb);
                 }
                 return color;
             }
 
             vec3 getImageryColor() {
+                // Match worldMetersToLatLon exactly: uses ORIGIN latitude for longitude conversion
                 float lat = uOriginLatLon.x + (vWorldPosition.z / uMetersPerDegreeLat);
-                float lon = uOriginLatLon.y + (vWorldPosition.x / uMetersPerDegreeLon);
+                
+                // Compute meters per degree longitude at ORIGIN latitude (flat-earth approximation)
+                float originLatRad = radians(uOriginLatLon.x);
+                float metersPerDegreeLon = uMetersPerDegreeLat * cos(originLatRad);
+                float lon = uOriginLatLon.y + (vWorldPosition.x / metersPerDegreeLon);
+                
+                // Clamp latitude for Web Mercator
                 lat = clamp(lat, -WEB_MERCATOR_MAX_LAT, WEB_MERCATOR_MAX_LAT);
+                
+                // Compute Web Mercator tile coordinates
                 float latRad = radians(lat);
-                float scale = exp2(uImageryZoomLevel);
-                vec2 tileCoord = vec2(
-                    (lon + 180.0) / 360.0 * scale,
-                    (1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / PI) * 0.5 * scale
-                );
-                vec2 tileIndex = floor(tileCoord + 1e-6);
-                vec2 tileUv = fract(tileCoord);
+                float n = exp2(float(uImageryZoomLevel));
+                float tileX = ((lon + 180.0) / 360.0) * n;
+                float tileY = (1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / PI) / 2.0 * n;
+                
+                vec2 tileIndex = floor(vec2(tileX, tileY));
+                vec2 tileUv = fract(vec2(tileX, tileY));
+                tileUv.y = 1.0 - tileUv.y; // Tiles are top-left origin, UVs are bottom-left
                 return sampleImagery(tileIndex, tileUv);
             }
             `;
@@ -267,7 +295,7 @@ export class TerrainMeshBuilder {
             shader.fragmentShader = shader.fragmentShader
                 .replace(
                     "#include <common>",
-                    `#include <common>\n            varying vec3 vWorldPosition;\n            uniform vec2 uOriginLatLon;\n            uniform float uMetersPerDegreeLat;\n            uniform float uMetersPerDegreeLon;\n            uniform float uImageryZoomLevel;\n            uniform int uImageryTileCount;\n            uniform vec2 uImageryTileCoords[IMAGERY_MAX_TILES];\n            uniform sampler2D uImageryTexture0;\n            uniform sampler2D uImageryTexture1;\n            uniform sampler2D uImageryTexture2;\n            uniform sampler2D uImageryTexture3;\n            uniform sampler2D uImageryTexture4;\n            uniform sampler2D uImageryTexture5;\n            uniform vec3 uImageryFallback;\n            ${imageryChunk}`
+                    `#include <common>\n            varying vec3 vWorldPosition;\n            uniform vec2 uOriginLatLon;\n            uniform float uMetersPerDegreeLat;\n            uniform float uImageryZoomLevel;\n            uniform int uUseTms;\n            uniform int uImageryTileCount;\n            uniform vec2 uImageryTileCoords[IMAGERY_MAX_TILES];\n            uniform sampler2D uImageryTexture0;\n            uniform sampler2D uImageryTexture1;\n            uniform sampler2D uImageryTexture2;\n            uniform sampler2D uImageryTexture3;\n            uniform sampler2D uImageryTexture4;\n            uniform sampler2D uImageryTexture5;\n            uniform vec3 uImageryFallback;\n            ${imageryChunk}`
                 )
                 .replace(
                     "#include <map_fragment>",

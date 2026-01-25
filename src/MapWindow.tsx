@@ -51,6 +51,9 @@ export default function MapWindow({ latitude, longitude, onMapLoad }: MapWindowP
         const loadMap = () => {
             const apiKey = process.env.REACT_APP_MAPTILER_API_KEY;
             const mapId = process.env.REACT_APP_MAPTILER_MAP_ID;
+            const apiUrl = process.env.REACT_APP_API_URL;
+            const imageryZoom = parseInt(process.env.REACT_APP_IMAGERY_ZOOM ?? "11", 10);
+            const useTms = (process.env.REACT_APP_IMAGERY_TMS ?? "false").toLowerCase() === "true";
 
             if (!apiKey) {
                 console.error('[MapWindow] Missing REACT_APP_MAPTILER_API_KEY');
@@ -62,20 +65,52 @@ export default function MapWindow({ latitude, longitude, onMapLoad }: MapWindowP
                 return;
             }
 
+            if (!apiUrl) {
+                console.error('[MapWindow] Missing REACT_APP_API_URL');
+                return;
+            }
+
             if (mapRef.current || !mapContainerRef.current) {
                 return;
             }
 
             maptilersdk.config.apiKey = apiKey;
 
-            const styleUrl = `https://api.maptiler.com/maps/${mapId}/style.json`;
+            // Use custom style that points to the SAME tile source as terrain shading
+            const customStyle = {
+                version: 8,
+                sources: {
+                    'world-imagery': {
+                        type: 'raster',
+                        tiles: [`${apiUrl}/world/imagery/maptiler/${mapId}/{z}/{x}/{y}`],
+                        tileSize: 256,
+                        scheme: useTms ? 'tms' : 'xyz',
+                        attribution: '© MapTiler',
+                    },
+                },
+                layers: [
+                    {
+                        id: 'background',
+                        type: 'background',
+                        paint: {
+                            'background-color': '#1a1a1a',
+                        },
+                    },
+                    {
+                        id: 'imagery',
+                        type: 'raster',
+                        source: 'world-imagery',
+                        paint: {},
+                    },
+                ],
+            };
 
             try {
                 mapRef.current = new maptilersdk.Map({
                     container: mapContainerRef.current,
-                    style: styleUrl,
+                    style: customStyle as any,
                     center: [longitude, latitude],
-                    zoom: 16,
+                    zoom: imageryZoom,
                     attributionControl: false,
                     hash: false,
                     dragRotate: true,
@@ -108,6 +143,9 @@ export default function MapWindow({ latitude, longitude, onMapLoad }: MapWindowP
             markerRef.current.setLngLat(lngLat);
             markerRef.current.getElement().setAttribute('title', `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
             mapRef.current.setCenter(lngLat);
+            if (process.env.NODE_ENV === 'development') {
+                console.log(`[MapWindow] Marker at: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
+            }
         }
     }, [latitude, longitude]);
 
