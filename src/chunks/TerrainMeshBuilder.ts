@@ -182,10 +182,10 @@ export class TerrainMeshBuilder {
                 chunkWorldZ,
                 this.worldContract
             );
-            console.log(`[TerrainMesh] Chunk ${chunk.chunkX},${chunk.chunkZ} tiles:`, tiles.map(t => `${t.z}/${t.x}/${t.y}`));
-            console.log(`[TerrainMesh] Chunk SW corner: world(${chunkWorldX}, ${chunkWorldZ}) → lat/lon(${latitude.toFixed(6)}, ${longitude.toFixed(6)})`);
-            console.log(`[TerrainMesh] Origin: ${this.worldContract.origin.latitude}, ${this.worldContract.origin.longitude}`);
-            console.log(`[TerrainMesh] Zoom: ${this.imageryZoom}, MetersPerDegreeLat: ${this.worldContract.metersPerDegreeLatitude}`);
+            //console.log(`[TerrainMesh] Chunk ${chunk.chunkX},${chunk.chunkZ} tiles:`, tiles.map(t => `${t.z}/${t.x}/${t.y}`));
+            //console.log(`[TerrainMesh] Chunk SW corner: world(${chunkWorldX}, ${chunkWorldZ}) → lat/lon(${latitude.toFixed(6)}, ${longitude.toFixed(6)})`);
+            //console.log(`[TerrainMesh] Origin: ${this.worldContract.origin.latitude}, ${this.worldContract.origin.longitude}`);
+            //console.log(`[TerrainMesh] Zoom: ${this.imageryZoom}, MetersPerDegreeLat: ${this.worldContract.metersPerDegreeLatitude}`);
         }
 
         material.defines = {

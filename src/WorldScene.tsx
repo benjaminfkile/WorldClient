@@ -107,15 +107,15 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
             spawnChunkX = chunkCoords.chunkX;
             spawnChunkZ = chunkCoords.chunkZ;
 
-            console.log('[WorldScene] World spawn initialized');
-            console.log(`  Spawn lat/lon: (${spawnCoords.latitude.toFixed(4)}, ${spawnCoords.longitude.toFixed(4)})`);
-            console.log(`  World meters: (X=${spawnWorldX.toFixed(1)}, Z=${spawnWorldZ.toFixed(1)})`);
-            console.log(`  Chunk coords: (X=${spawnChunkX}, Z=${spawnChunkZ})`);
-            console.log(`  World origin: (${worldContract.origin.latitude.toFixed(4)}, ${worldContract.origin.longitude.toFixed(4)})`);
+            //console.log('[WorldScene] World spawn initialized');
+            //console.log(`  Spawn lat/lon: (${spawnCoords.latitude.toFixed(4)}, ${spawnCoords.longitude.toFixed(4)})`);
+            //console.log(`  World meters: (X=${spawnWorldX.toFixed(1)}, Z=${spawnWorldZ.toFixed(1)})`);
+            //console.log(`  Chunk coords: (X=${spawnChunkX}, Z=${spawnChunkZ})`);
+            //console.log(`  World origin: (${worldContract.origin.latitude.toFixed(4)}, ${worldContract.origin.longitude.toFixed(4)})`);
         } catch (err) {
             const errorMsg = err instanceof Error ? err.message : String(err);
             console.error('[WorldScene] Failed to read spawn coordinates:', errorMsg);
-            console.log('[WorldScene] Spawning at world origin (0, 0)');
+            //console.log('[WorldScene] Spawning at world origin (0, 0)');
             spawnWorldX = 0;
             spawnWorldZ = 0;
             spawnChunkX = 0;
@@ -161,7 +161,7 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
                 debugVisuals.setVisible(DEBUG_VISUALS);
                 chunkManager.setDebugVisuals(DEBUG_VISUALS);
                 if (process.env.NODE_ENV === 'development') {
-                    //console.log(`[Debug] DEBUG_VISUALS toggled: ${DEBUG_VISUALS}`);
+                    ////console.log(`[Debug] DEBUG_VISUALS toggled: ${DEBUG_VISUALS}`);
                 }
             }
 
@@ -169,7 +169,7 @@ export default function WorldScene(props: { onCoordsUpdate?: (coords: { latitude
             if (key === 'm' && !document.pointerLockElement) {
                 setMapVisible(prev => !prev);
                 if (process.env.NODE_ENV === 'development') {
-                    //console.log(`[Debug] Map toggled`);
+                    ////console.log(`[Debug] Map toggled`);
                 }
             }
             

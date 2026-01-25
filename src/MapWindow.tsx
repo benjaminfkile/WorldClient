@@ -43,7 +43,7 @@ export default function MapWindow({ latitude, longitude, onMapLoad }: MapWindowP
             container.style.padding = '0';
             
             document.body.appendChild(container);
-            //console.log('[MapWindow] Container created at left:', leftPos, 'top: 10');
+            ////console.log('[MapWindow] Container created at left:', leftPos, 'top: 10');
         }
 
         mapContainerRef.current = container;
@@ -141,9 +141,9 @@ export default function MapWindow({ latitude, longitude, onMapLoad }: MapWindowP
             markerRef.current.setLngLat(lngLat);
             markerRef.current.getElement().setAttribute('title', `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
             mapRef.current.setCenter(lngLat);
-            if (process.env.NODE_ENV === 'development') {
-                console.log(`[MapWindow] Marker at: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
-            }
+            // if (process.env.NODE_ENV === 'development') {
+            //     //console.log(`[MapWindow] Marker at: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
+            // }
         }
     }, [latitude, longitude]);
 
