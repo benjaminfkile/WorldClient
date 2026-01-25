@@ -129,6 +129,7 @@ export class TerrainMeshBuilder {
         const tileTextures: THREE.Texture[] = Array.from({ length: IMAGERY_MAX_TILES }, () => this.placeholderTexture);
         const tileCoords: THREE.Vector2[] = Array.from({ length: IMAGERY_MAX_TILES }, () => new THREE.Vector2(-1, -1));
         const cleanupSubscriptions: Array<() => void> = [];
+        const pendingTextureUpdates: Record<number, THREE.Texture> = {};
 
         const material = new THREE.MeshStandardMaterial({
             color: 0xffffff,
@@ -154,7 +155,10 @@ export class TerrainMeshBuilder {
                 const shader = (material as any).userData?.shader as any;
                 if (shader && shader.uniforms[uniformName]) {
                     shader.uniforms[uniformName].value = texture;
-                    shader.uniformsNeedUpdate = true;
+                    (shader as any).uniformsNeedUpdate = true;
+                }
+                if (!shader) {
+                    pendingTextureUpdates[i] = texture;
                 }
                 material.needsUpdate = true;
             });
@@ -190,6 +194,18 @@ export class TerrainMeshBuilder {
 
             (material as any).userData.shader = shader;
 
+            // Apply any textures that finished loading before compilation
+            Object.entries(pendingTextureUpdates).forEach(([idxStr, tex]) => {
+                const idx = Number(idxStr);
+                const uniformName = TEXTURE_UNIFORM_NAMES[idx];
+                if (shader.uniforms[uniformName]) {
+                    shader.uniforms[uniformName].value = tex;
+                }
+            });
+            if (Object.keys(pendingTextureUpdates).length > 0) {
+                (shader as any).uniformsNeedUpdate = true;
+            }
+
             shader.vertexShader = shader.vertexShader
                 .replace(
                     "#include <common>",
@@ -203,25 +219,30 @@ export class TerrainMeshBuilder {
             const imageryChunk = `
             const float WEB_MERCATOR_MAX_LAT = 85.0511287798066;
 
+            bool tileMatches(vec2 tileIndex, vec2 target) {
+                vec2 diff = abs(tileIndex - target);
+                return all(lessThan(diff, vec2(0.01)));
+            }
+
             vec3 sampleImagery(vec2 tileIndex, vec2 tileUv) {
                 vec3 color = uImageryFallback;
 
-                if (uImageryTileCount > 0 && all(equal(tileIndex, uImageryTileCoords[0]))) {
+                if (uImageryTileCount > 0 && tileMatches(tileIndex, uImageryTileCoords[0])) {
                     color = texture2D(uImageryTexture0, tileUv).rgb;
                 }
-                if (uImageryTileCount > 1 && all(equal(tileIndex, uImageryTileCoords[1]))) {
+                if (uImageryTileCount > 1 && tileMatches(tileIndex, uImageryTileCoords[1])) {
                     color = texture2D(uImageryTexture1, tileUv).rgb;
                 }
-                if (uImageryTileCount > 2 && all(equal(tileIndex, uImageryTileCoords[2]))) {
+                if (uImageryTileCount > 2 && tileMatches(tileIndex, uImageryTileCoords[2])) {
                     color = texture2D(uImageryTexture2, tileUv).rgb;
                 }
-                if (uImageryTileCount > 3 && all(equal(tileIndex, uImageryTileCoords[3]))) {
+                if (uImageryTileCount > 3 && tileMatches(tileIndex, uImageryTileCoords[3])) {
                     color = texture2D(uImageryTexture3, tileUv).rgb;
                 }
-                if (uImageryTileCount > 4 && all(equal(tileIndex, uImageryTileCoords[4]))) {
+                if (uImageryTileCount > 4 && tileMatches(tileIndex, uImageryTileCoords[4])) {
                     color = texture2D(uImageryTexture4, tileUv).rgb;
                 }
-                if (uImageryTileCount > 5 && all(equal(tileIndex, uImageryTileCoords[5]))) {
+                if (uImageryTileCount > 5 && tileMatches(tileIndex, uImageryTileCoords[5])) {
                     color = texture2D(uImageryTexture5, tileUv).rgb;
                 }
                 return color;

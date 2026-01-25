@@ -47,15 +47,19 @@ export function getChunkTileCoverage(
         { worldX: (chunkX + 1) * chunkSize, worldZ: (chunkZ + 1) * chunkSize },
     ];
 
-    const tileMap = new Map<string, TileCoordinate>();
+    const cornerTiles = corners.map(corner => worldMetersToTileCoordinate(corner.worldX, corner.worldZ, contract, zoom));
 
-    for (const corner of corners) {
-        const tile = worldMetersToTileCoordinate(corner.worldX, corner.worldZ, contract, zoom);
-        const key = `${tile.x},${tile.y},${tile.z}`;
-        if (!tileMap.has(key)) {
-            tileMap.set(key, tile);
+    const minX = Math.min(...cornerTiles.map(t => t.x));
+    const maxX = Math.max(...cornerTiles.map(t => t.x));
+    const minY = Math.min(...cornerTiles.map(t => t.y));
+    const maxY = Math.max(...cornerTiles.map(t => t.y));
+
+    const tiles: TileCoordinate[] = [];
+    for (let x = minX; x <= maxX; x++) {
+        for (let y = minY; y <= maxY; y++) {
+            tiles.push({ x, y, z: zoom });
         }
     }
 
-    return Array.from(tileMap.values()).sort((a, b) => (a.y - b.y) || (a.x - b.x));
+    return tiles;
 }
